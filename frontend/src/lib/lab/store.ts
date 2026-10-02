@@ -7,10 +7,11 @@ import { useSyncExternalStore } from 'react';
 import { tr } from '../i18n';
 import type { GlueLink, ImportResult, LabDoc, LabMode, Material, Part, PartEdit, SceneState } from '../types';
 import {
-  autoRows, compositeParts, detach, dissolve, editParts, entityMembers, entityOf, glue as glueDoc, materialMap, mergeRows,
+  addGroup, assignGroup, autoRows, compositeParts, groupOfPart, normalizeGroups, removeGroup, renameGroup, detach, dissolve, editParts, entityMembers, entityOf, glue as glueDoc, materialMap, mergeRows,
   hasGeometry, newDoc, packItems, packSignature, partMatrices, resetParts, rowViews, splitRow, type PackItemIn, type RowView,
 } from '../model/labdoc';
 import type { LabEngine, PickHit } from './LabEngine';
+import { entityCavities, type Cavity } from '../pack/cavity';
 
 /** Yelimlash holati: asosiy birlik va unga yelimlanadigan birliklar (birlik = detal yoki kompozit id). */
 export interface GlueState {
@@ -174,7 +175,9 @@ export class LabStore {
     if (!e) return;
     const s = this.s;
     const { main, attached } = this.gluePartSets();
-    e.setVisual({ selected: s.glue ? new Set() : s.selected, hidden: s.hidden, isolate: s.isolate, xray: s.xray, edges: s.edges, main, attached, pickable: null });
+    const tint = new Map<string, string>();
+    for (const [pid, gid] of Object.entries(s.doc.partGroup || {})) { const g = (s.doc.packGroups || []).find((x) => x.id === gid); if (g) tint.set(pid, g.color); }
+    e.setVisual({ selected: s.glue ? new Set() : s.selected, hidden: s.hidden, isolate: s.isolate, xray: s.xray, edges: s.edges, main, attached, pickable: null, tint });
     e.setTool(s.tool === 'measure' ? 'measure' : s.tool === 'box' ? 'box' : 'select');
   }
 
@@ -219,8 +222,23 @@ export class LabStore {
     return { camera: this.engine ? this.engine.getCamera() : null, hidden: [...this.s.hidden], mode: this.s.mode };
   }
 
+  private cavCache = new Map<string, Cavity[]>();
+
+  /** Qator yoki kompozit ichidagi bo'shliqlar (geometriya bo'yicha, keshlanadi). */
+  private cavitiesOf(v: RowView): Cavity[] {
+    if (v.partKind === 'ignore') return [];
+    const key = [v.kind, v.id, v.members.join(','), v.L, v.W, v.T, v.kind === 'composite' ? JSON.stringify(this.s.doc.composites.find((c) => c.id === v.id)?.members.map((m) => m.matrix.join(','))) : ''].join('|');
+    const hit = this.cavCache.get(key);
+    if (hit) return hit;
+    let cav: Cavity[] = [];
+    try { cav = entityCavities(this.s.doc, this.s.parts, v.id, v.kind, v.members, [v.L, v.W, v.T]); } catch { cav = []; }
+    this.cavCache.set(key, cav);
+    return cav;
+  }
+
   packPayload() {
-    const items = packItems(this.s.views).filter((i) => i.kind !== 'ignore');
+    const ctx = { doc: this.s.doc, parts: this.s.parts, mats: materialMap(this.s.materials), cavities: (v: RowView) => this.cavitiesOf(v) };
+    const items = packItems(this.s.views, ctx).filter((i) => i.kind !== 'ignore');
     return { items, signature: packSignature(items) };
   }
 
@@ -514,6 +532,41 @@ export class LabStore {
     this.startGlue();
   }
 
+  /* ---------- alohida upokovka guruhlari ---------- */
+  createGroup(name: string, assignSelected = true): string | null {
+    if (!this.perms.editParts) { this.toast(tr('msg.noP2'), 'warn'); return null; }
+    const { doc, id } = addGroup(this.s.doc, name);
+    let d = doc;
+    if (assignSelected && this.s.selected.size) d = assignGroup(d, [...this.s.selected], id);
+    this.commit(d, tr('group.created'));
+    return id;
+  }
+
+  renameGroup(id: string, name: string) {
+    if (!this.perms.editParts) return this.toast(tr('msg.noP2'), 'warn');
+    this.commit(renameGroup(this.s.doc, id, name));
+  }
+
+  deleteGroup(id: string) {
+    if (!this.perms.editParts) return this.toast(tr('msg.noP2'), 'warn');
+    this.commit(removeGroup(this.s.doc, id), tr('group.deleted'));
+  }
+
+  /** Tanlangan detallarni guruhga biriktirish (gid = null: chiqarish). Tanlangan kompozit butun holda o'tadi. */
+  assignSelected(gid: string | null) {
+    if (!this.perms.editParts) return this.toast(tr('msg.noP2'), 'warn');
+    const ids = [...this.s.selected];
+    if (!ids.length) return this.toast(tr('group.pickFirst'), 'warn');
+    this.commit(assignGroup(this.s.doc, ids, gid), gid ? tr('group.assigned') : tr('group.removed'));
+  }
+
+  assignIds(ids: string[], gid: string | null) {
+    if (!this.perms.editParts) return this.toast(tr('msg.noP2'), 'warn');
+    this.commit(assignGroup(this.s.doc, ids, gid));
+  }
+
+  groupOf(partId: string): string { return groupOfPart(this.s.doc, partId); }
+
   /* ---------- yordamchi ---------- */
   part(id: string) { return this.byId.get(id); }
   compositeOf(partId: string) { return this.s.doc.composites.find((c) => c.members.some((m) => m.partId === partId)) || null; }
@@ -540,7 +593,7 @@ export function normalizeDoc(parts: Part[], doc: LabDoc): LabDoc {
   let rows = doc.rows
     .map((r) => ({ ...r, members: r.members.filter((m) => ids.has(m) && !inComp.has(m) && !seen.has(m) && (seen.add(m), true)) }))
     .filter((r) => r.members.length);
-  const d0: LabDoc = { ...doc, composites, rows };
+  const d0: LabDoc = normalizeGroups({ ...doc, composites, rows }, ids);
   if (!doc.rows.length && !doc.composites.length) return { ...d0, rows: autoRows(parts, d0) };
   const missing = parts.filter((p) => !seen.has(p.id) && !inComp.has(p.id));
   if (missing.length) rows = rows.concat(missing.map((p) => ({ id: 'rn' + p.id, members: [p.id], manual: true })));

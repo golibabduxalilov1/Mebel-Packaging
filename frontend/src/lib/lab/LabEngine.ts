@@ -34,6 +34,7 @@ export interface VisualState {
   main: Set<string>; // yelimlashdagi asosiy detal
   attached: Set<string>; // yelimlanadigan detallar
   pickable: Set<string> | null; // null = hammasi
+  tint?: Map<string, string>; // alohida upokovka guruhi rangi (detal id -> rang)
 }
 
 interface Entry {
@@ -484,13 +485,14 @@ export class LabEngine {
         if (v.main.has(id)) m.emissive.copy(mov).multiplyScalar(0.45);
         else if (v.attached.has(id)) m.emissive.copy(tgt).multiplyScalar(0.4);
         else if (isSel) m.emissive.copy(sel).multiplyScalar(0.32);
+        else if (v.tint && v.tint.has(id)) m.emissive.set(v.tint.get(id)!).multiplyScalar(0.42);
         else if (id === this.hoverId && !dim) m.emissive.set(0x262626);
         else m.emissive.set(0x000000);
       }
       if ((isSel || v.main.has(id) || v.attached.has(id)) && e.edgeLazy) this.ensureEdges(e);
-      e.edge.visible = v.edges || isSel || v.main.has(id) || v.attached.has(id);
+      e.edge.visible = v.edges || isSel || v.main.has(id) || v.attached.has(id) || !!(v.tint && v.tint.has(id));
       const em = e.edge.material as THREE.LineBasicMaterial;
-      em.color.set(v.main.has(id) ? this.theme.main : v.attached.has(id) ? this.theme.attached : isSel ? this.theme.sel : this.theme.edge);
+      em.color.set(v.main.has(id) ? this.theme.main : v.attached.has(id) ? this.theme.attached : isSel ? this.theme.sel : v.tint && v.tint.has(id) ? v.tint.get(id)! : this.theme.edge);
       em.opacity = dim ? 0.1 : 1;
       e.mesh.userData.dim = dim;
     }

@@ -164,12 +164,23 @@ export interface Composite {
   links: GlueLink[];
 }
 
+/** Alohida upokovka guruhi: uning detallari boshqa detallar bilan bir kartonga aralashmaydi. */
+export interface PackGroup {
+  id: string;
+  name: string;
+  color: string;
+}
+
 export interface LabDoc {
   version: number;
   edits: Record<string, PartEdit>;
   rows: Row[];
   composites: Composite[];
   mergeKey: { kromka: boolean; cuts: boolean };
+  /** Alohida upokovka guruhlari. */
+  packGroups: PackGroup[];
+  /** Detal id -> guruh id. Kompozit a'zolari doim bir guruhda (kompozit bo'linmaydi). */
+  partGroup: Record<string, string>;
 }
 
 export interface SceneState {
@@ -178,7 +189,7 @@ export interface SceneState {
   mode: LabMode;
 }
 
-export type LabMode = 'view' | 'merge' | 'glue';
+export type LabMode = 'view' | 'merge' | 'glue' | 'group';
 
 /* ---------- Materiallar ---------- */
 export interface Material {
@@ -192,6 +203,16 @@ export interface Material {
 }
 
 /* ---------- Upokovka ---------- */
+
+/** Guruh uchun alohida karton sozlamalari; berilmagan maydon umumiy sozlamadan olinadi. */
+export interface GroupSetting {
+  maxWeight?: number;
+  maxL?: number; // avto rejimda o'lcham chegarasi, qo'lda rejimda karton o'lchami
+  maxW?: number;
+  maxH?: number;
+  padding?: number;
+}
+
 export interface PackSettings {
   maxWeight: number;
   sizeMode: 'auto' | 'manual';
@@ -205,7 +226,10 @@ export interface PackSettings {
   wall: number;
   includeHardware: boolean;
   boxLimits: Record<string, number>;
+  groups: Record<string, GroupSetting>;
 }
+
+export interface PackCavity { x: number; y: number; z: number; l: number; w: number; h: number }
 
 export interface PackItemPlaced {
   uid: string;
@@ -214,19 +238,34 @@ export interface PackItemPlaced {
   name: string;
   material: string;
   color?: string;
+  artPos: string;
   x: number;
   y: number;
   z: number;
+  /** Karton o'qlari bo'yicha o'lcham (joylashgan holatda). */
   l: number;
   w: number;
   h: number;
+  /** Detalning o'z o'lchamlari (uzunlik >= eni >= qalinlik). */
+  unitL: number;
+  unitW: number;
+  unitT: number;
   rotated: boolean;
+  pose: 'flat' | 'upright';
+  up: 'T' | 'W' | 'L';
   layer: number;
+  step: number;
+  host: string;
+  done: boolean;
   weight: number;
+  geom: string;
+  cavities: PackCavity[];
 }
 
 export interface PackBox {
   no: number;
+  group: string;
+  groupName: string;
   l: number;
   w: number;
   h: number;
@@ -236,19 +275,25 @@ export interface PackBox {
   weight: number;
   maxWeight: number;
   fill: number;
+  ready: boolean;
+  issues: string[];
   items: PackItemPlaced[];
 }
 
+export interface PackSizeSummary { l: number; w: number; h: number; innerL: number; innerW: number; innerH: number; count: number; nos: number[] }
+
 export interface PackWarning {
-  code: 'unfit' | 'unknown_weight' | 'unknown_size' | 'hardware_no_size' | 'overweight_item';
+  code: 'unfit' | 'unknown_weight' | 'unknown_size' | 'hardware_no_size' | 'overweight_item' | 'bbox_only';
   name: string;
   refUid: string;
   size?: string;
   reason: string;
+  group?: string;
 }
 
 export interface PackResult {
   boxes: PackBox[];
+  summary: PackSizeSummary[];
   warnings: PackWarning[];
   unplaced: { refUid: string; name: string; qty: number; reason: string }[];
   stale: boolean;

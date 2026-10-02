@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { BrandMark, Icon } from '@/components/ui/Icon';
 import { LangSwitch } from '@/components/ui/AppShell';
 import { ImportPanel, textureMap, type ImportDone } from '@/components/lab/ImportPanel';
-import { LabWorkspace } from '@/components/lab/LabWorkspace';
+import { ShowcaseView } from '@/components/lab/ShowcaseView';
 import { LabStore } from '@/lib/lab/store';
 import { useI18n } from '@/lib/i18n';
 import { api, getToken } from '@/lib/api';
@@ -28,11 +28,10 @@ export default function ViewerPage() {
 
   if (store && info) {
     return (
-      <LabWorkspace
-        store={store} standalone title={info.name} subtitle={t('viewer.local')}
+      <ShowcaseView
+        store={store} title={info.name}
         left={<button className="btn sm icon-btn" onClick={() => { setStore(null); setInfo(null); }} title={t('viewer.another')} aria-label={t('viewer.another')}><Icon name="chevronL" size={16} /></button>}
         right={<LangSwitch dark={false} />}
-        statusExtra={<span>{t('lab.importMs', { ms: info.ms })} · {(info.size / 1048576).toFixed(1)} MB</span>}
       />
     );
   }

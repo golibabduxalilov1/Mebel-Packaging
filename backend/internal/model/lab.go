@@ -48,6 +48,8 @@ type docIn struct {
 	Rows       []rowIn         `json:"rows"`
 	Composites []compIn        `json:"composites"`
 	MergeKey   json.RawMessage `json:"mergeKey"`
+	PackGroups json.RawMessage `json:"packGroups"` // alohida upokovka guruhlari
+	PartGroup  json.RawMessage `json:"partGroup"`  // detal -> guruh
 }
 
 type summaryIn struct {
@@ -102,6 +104,18 @@ func sameJSON(a, b json.RawMessage) bool {
 	return bytes.Equal(norm(a), norm(b))
 }
 
+// sameOrEmpty: bo'sh qiymatlar (yo'q, null, [], {}) o'zaro teng hisoblanadi.
+func sameOrEmpty(a, b json.RawMessage) bool {
+	empty := func(x json.RawMessage) bool {
+		t := bytes.TrimSpace(x)
+		return len(t) == 0 || string(t) == "null" || string(t) == "[]" || string(t) == "{}"
+	}
+	if empty(a) && empty(b) {
+		return true
+	}
+	return sameJSON(a, b)
+}
+
 func marshal(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
 
 // Put: hujjat, sahna, upokovka elementlari va xulosani saqlaydi.
@@ -138,12 +152,12 @@ func (h Handlers) Put(c *fiber.Ctx) error {
 	}
 	compChanged := !sameJSON(marshal(od.Composites), marshal(nd.Composites))
 	rowsChanged := !sameJSON(marshal(od.Rows), marshal(nd.Rows)) || !sameJSON(od.MergeKey, nd.MergeKey)
-	editsChanged := !sameJSON(od.Edits, nd.Edits)
+	editsChanged := !sameJSON(od.Edits, nd.Edits) || !sameOrEmpty(od.PackGroups, nd.PackGroups) || !sameOrEmpty(od.PartGroup, nd.PartGroup)
 	if !hasOld {
 		// birinchi saqlash: avtomatik qatorlar, hech kim hali tahrir qilmagan bo'lishi mumkin
 		compChanged = len(nd.Composites) > 0
 		rowsChanged = false
-		editsChanged = !sameJSON(nd.Edits, json.RawMessage("{}"))
+		editsChanged = !sameJSON(nd.Edits, json.RawMessage("{}")) || !sameOrEmpty(nil, nd.PartGroup) || !sameOrEmpty(nil, nd.PackGroups)
 	}
 	if compChanged && !me.Can("P4") {
 		return platform.Fail(c, 403, "yelimlashga ruxsat yo'q (P4)", "forbidden")
@@ -155,6 +169,11 @@ func (h Handlers) Put(c *fiber.Ctx) error {
 		return platform.Fail(c, 403, "tahrirlashga ruxsat yo'q (P2)", "forbidden")
 	}
 	docOnlyScene := hasOld && !compChanged && !rowsChanged && !editsChanged
+	// hujjat huquqi (P2/P3/P4) yo'q foydalanuvchi (masalan, Upokovkachi) faqat sahna holatini saqlay oladi
+	sceneOnly := !me.Can("P2") && !me.Can("P3") && !me.Can("P4")
+	if sceneOnly && !hasOld {
+		return platform.Fail(c, 403, "laboratoriya hujjatini saqlashga ruxsat yo'q", "forbidden")
+	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
 		now := time.Now()
@@ -163,7 +182,7 @@ func (h Handlers) Put(c *fiber.Ctx) error {
 				return err
 			}
 		}
-		if docOnlyScene && old.Signature == in.Signature {
+		if sceneOnly || (docOnlyScene && old.Signature == in.Signature) {
 			return nil
 		}
 		items := in.Items

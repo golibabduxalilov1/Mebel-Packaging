@@ -62,6 +62,14 @@ export interface OrderFile { id: number; name: string; size: number; main: boole
 export interface LabPayload { order: Order; doc: LabDoc | null; scene: SceneState | null; files: OrderFile[] }
 
 /* ---------- API ---------- */
+/** Eski/to'liq bo'lmagan server javobida massivlar tushib qolsa ham interfeys yiqilmasligi uchun. */
+export function normPack(r: PackResult | null): PackResult | null {
+  if (!r) return r;
+  return { ...r, boxes: (r.boxes || []).map((b) => ({ ...b, issues: b.issues || [], items: (b.items || []).map((i) => ({ ...i, cavities: i.cavities || [] })) })),
+    summary: r.summary || [], warnings: r.warnings || [], unplaced: r.unplaced || [] };
+}
+const normP = (p: Promise<PackResult>) => p.then((r) => normPack(r) as PackResult);
+
 export const api = {
   login: (login: string, password: string) => request<{ token: string; user: User }>('POST', '/api/auth/login', { login, password }),
   me: () => request<User>('GET', '/api/auth/me'),
@@ -108,14 +116,17 @@ export const api = {
   saveLab: (id: number, p: { doc: LabDoc; scene: SceneState; items: PackItemIn[]; signature: string; summary: PartSummary[] }) =>
     request<{ packStale: boolean }>('PUT', `/api/orders/${id}/lab`, p),
 
-  pack: (id: number) => request<{ settings: PackSettings; result: PackResult | null; itemsCount: number }>('GET', `/api/orders/${id}/pack`),
+  pack: (id: number) => request<{ settings: PackSettings; result: PackResult | null; itemsCount: number }>('GET', `/api/orders/${id}/pack`).then((r) => ({ ...r, result: normPack(r.result) })),
   savePackSettings: (id: number, s: PackSettings) => request<PackSettings>('PUT', `/api/orders/${id}/pack/settings`, s),
-  runPack: (id: number) => request<PackResult>('POST', `/api/orders/${id}/pack/run`),
-  moveItem: (id: number, body: { itemUid: string; toBox: number }) => request<PackResult>('POST', `/api/orders/${id}/pack/move`, body),
-  setBoxLimit: (id: number, boxNo: number, maxWeight: number | null) => request<PackResult>('PUT', `/api/orders/${id}/pack/box/${boxNo}`, { maxWeight }),
+  runPack: (id: number) => normP(request<PackResult>('POST', `/api/orders/${id}/pack/run`)),
+  moveItem: (id: number, body: { itemUid: string; toBox: number }) => normP(request<PackResult>('POST', `/api/orders/${id}/pack/move`, body)),
+  markItem: (id: number, itemUid: string, done: boolean) => normP(request<PackResult>('PUT', `/api/orders/${id}/pack/item/done`, { itemUid, done })),
+  markReady: (id: number, boxNo: number, ready: boolean) => normP(request<PackResult>('PUT', `/api/orders/${id}/pack/box/${boxNo}/ready`, { ready })),
+  setBoxLimit: (id: number, boxNo: number, maxWeight: number | null) => normP(request<PackResult>('PUT', `/api/orders/${id}/pack/box/${boxNo}`, { maxWeight })),
 
   exportUrl: (id: number, kind: 'report.xlsx' | 'report.pdf' | 'labels.pdf', lang: string) =>
     `${API_BASE}/api/orders/${id}/export/${kind}?lang=${lang}`,
+  instructionUrl: (id: number, boxNo: number, lang: string) => `${API_BASE}/api/orders/${id}/export/box/${boxNo}/instruction.pdf?lang=${lang}`,
 };
 
 /** Fayl yuklab olish (eksport tugmalari). */
@@ -134,4 +145,19 @@ export async function download(url: string, name: string) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/** PDF ni yuklab olib yangi oynada ochadi (chop etish uchun). */
+export async function openPdf(url: string) {
+  const res = await fetch(url, { headers: getToken() ? { Authorization: 'Bearer ' + getToken() } : {} });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { msg = (await res.json()).error || msg; } catch { /* bo'sh */ }
+    throw new ApiError(res.status, msg);
+  }
+  const blob = await res.blob();
+  const u = URL.createObjectURL(blob);
+  const w = window.open(u, '_blank');
+  if (!w) { const a = document.createElement('a'); a.href = u; a.download = 'instruction.pdf'; document.body.appendChild(a); a.click(); a.remove(); }
+  setTimeout(() => URL.revokeObjectURL(u), 60000);
 }

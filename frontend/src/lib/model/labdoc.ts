@@ -2,10 +2,11 @@
  * Laboratoriya hujjati ustidagi sof funksiyalar (React va three.js'siz, test qilinadi).
  * F13 tahrirlash, F14/F15 birlashtirish, F16 og'irlik, F18-F20 yelimlash va kompozit.
  */
-import type { Composite, CompositeMember, GlueLink, LabDoc, Material, Part, PartEdit, PartKind, Row, Vec3 } from '../types';
+import type { Composite, CompositeMember, GlueLink, LabDoc, Material, PackGroup, Part, PartEdit, PartKind, Row, Vec3 } from '../types';
+import type { Cavity } from '../pack/cavity';
 import { dot, ident, isIdent, point, dir, normalize, type M4 } from './mat4';
 
-export const newDoc = (): LabDoc => ({ version: 1, edits: {}, rows: [], composites: [], mergeKey: { kromka: false, cuts: false } });
+export const newDoc = (): LabDoc => ({ version: 1, edits: {}, rows: [], composites: [], mergeKey: { kromka: false, cuts: false }, packGroups: [], partGroup: {} });
 
 export interface Eff {
   name: string;
@@ -317,7 +318,7 @@ export function glue(doc: LabDoc, parts: Part[], main: string, attached: string[
   const rows = doc.rows.map((r) => ({ ...r, members: r.members.filter((x) => !memberIds.has(x)) })).filter((r) => r.members.length);
   const id = 'c' + Date.now().toString(36) + (compSeq++).toString(36);
   const composites = doc.composites.filter((c) => !consumed.has(c.id)).concat([{ id, name, mainId, members, links }]);
-  return { ...doc, rows, composites };
+  return { ...doc, rows, composites, partGroup: harmonizeGroups(doc.partGroup || {}, members.map((m) => m.partId), mainId) };
 }
 
 function returnToRows(rows: Row[], back: CompositeMember[]): Row[] {
@@ -356,6 +357,58 @@ export function detach(doc: LabDoc, compId: string, partId: string, parts: Part[
   return { ...doc, rows: returnToRows(doc.rows, [mem]), composites: doc.composites.map((x) => (x.id === compId ? nc : x)) };
 }
 
+/* ---------- alohida upokovka guruhlari ---------- */
+export const GROUP_COLORS = ['#C2410C', '#1D6FA5', '#7C3AED', '#0F766E', '#BE185D', '#4D7C0F', '#B45309', '#475569'];
+
+export const groupOfPart = (doc: LabDoc, partId: string): string => (doc.partGroup || {})[partId] || '';
+
+/** Kompozit a'zolari bir guruhda bo'lishi shart: asosiy detal guruhi, bo'lmasa birinchi topilgani hammaga beriladi. */
+function harmonizeGroups(pg: Record<string, string>, members: string[], mainId: string): Record<string, string> {
+  const gid = pg[mainId] || members.map((m) => pg[m]).find((g) => !!g) || '';
+  const out = { ...pg };
+  for (const m of members) { if (gid) out[m] = gid; else delete out[m]; }
+  return out;
+}
+
+export function addGroup(doc: LabDoc, name: string): { doc: LabDoc; id: string } {
+  const groups = doc.packGroups || [];
+  let n = groups.length + 1;
+  while (groups.some((g) => g.id === 'pg' + n)) n++;
+  const id = 'pg' + n;
+  const g: PackGroup = { id, name: name.trim() || 'Guruh ' + n, color: GROUP_COLORS[groups.length % GROUP_COLORS.length] };
+  return { doc: { ...doc, packGroups: groups.concat([g]) }, id };
+}
+
+export function renameGroup(doc: LabDoc, id: string, name: string): LabDoc {
+  return { ...doc, packGroups: (doc.packGroups || []).map((g) => (g.id === id ? { ...g, name: name.trim() || g.name } : g)) };
+}
+
+export function removeGroup(doc: LabDoc, id: string): LabDoc {
+  const pg: Record<string, string> = {};
+  for (const [k, v] of Object.entries(doc.partGroup || {})) if (v !== id) pg[k] = v;
+  return { ...doc, packGroups: (doc.packGroups || []).filter((g) => g.id !== id), partGroup: pg };
+}
+
+/** Tanlangan detallarni guruhga biriktiradi (gid = null: guruhdan chiqarish). Kompozit butun holda o'tadi: bir qismini tanlab bo'lmaydi. */
+export function assignGroup(doc: LabDoc, partIds: string[], gid: string | null): LabDoc {
+  if (gid && !(doc.packGroups || []).some((g) => g.id === gid)) return doc;
+  const pg = { ...(doc.partGroup || {}) };
+  for (const id of partIds) {
+    for (const m of entityMembers(doc, entityOf(doc, id))) { if (gid) pg[m] = gid; else delete pg[m]; }
+  }
+  return { ...doc, partGroup: pg };
+}
+
+/** Saqlangan hujjatdagi guruhlarni tozalash: yo'q guruh/detal olib tashlanadi, kompozit a'zolari bir guruhga keltiriladi. */
+export function normalizeGroups(doc: LabDoc, partIds: Set<string>): LabDoc {
+  const groups = (doc.packGroups || []).filter((g) => g && g.id);
+  const ok = new Set(groups.map((g) => g.id));
+  let pg: Record<string, string> = {};
+  for (const [k, v] of Object.entries(doc.partGroup || {})) if (partIds.has(k) && ok.has(v)) pg[k] = v;
+  for (const c of doc.composites) pg = harmonizeGroups(pg, c.members.map((m) => m.partId), c.mainId);
+  return { ...doc, packGroups: groups, partGroup: pg };
+}
+
 /* ---------- upokovka uchun elementlar ---------- */
 export interface PackItemIn {
   refKind: 'row' | 'composite';
@@ -369,18 +422,77 @@ export interface PackItemIn {
   T: number | null;
   unitWeight: number | null;
   qty: number;
+  /** Alohida upokovka guruhi (bo'sh = umumiy) va nomi. */
+  group: string;
+  groupName: string;
+  artPos: string;
+  /** mesh | contour | box | none: none = geometriya yo'q, chegara qutisi ishlatiladi. */
+  geom: string;
+  /** Detal ichidagi bo'sh hajmlar (detal o'qlarida, L >= W >= T). */
+  cavities: Cavity[];
 }
 
-export function packItems(views: RowView[]): PackItemIn[] {
-  return views
-    .filter((v) => v.partKind !== 'ignore')
-    .map((v) => ({
-      refKind: v.kind, refUid: v.id, name: v.name, material: v.material, kind: v.kind === 'composite' ? 'panel' : v.partKind, color: v.color,
-      L: v.L, W: v.W, T: v.T, unitWeight: v.unitWeight, qty: v.qty,
-    }));
+export interface PackCtx {
+  doc: LabDoc;
+  parts: Part[];
+  mats: Map<string, Material>;
+  /** Qator yoki kompozit uchun o'yiqlar (null = yo'q). */
+  cavities?: (v: RowView) => Cavity[];
 }
 
-/** Upokovka natijasi eskirganini aniqlash uchun imzo (A38). */
+function geomOf(parts: (Part | undefined)[]): string {
+  const ps = parts.filter((p): p is Part => !!p);
+  if (!ps.length || ps.some((p) => p.geom === 'none' || !p.obb)) return 'none';
+  return ps.length === 1 ? ps[0].geom : 'mesh';
+}
+
+/**
+ * Upokovka elementlari. Qator a'zolari turli guruhlarda bo'lsa, qator guruhlar bo'yicha ajratiladi (alohida elementlar);
+ * kompozit esa hech qachon bo'linmaydi: u bitta element va asosiy detalning guruhida.
+ */
+export function packItems(views: RowView[], ctx?: PackCtx): PackItemIn[] {
+  const byId = ctx ? new Map(ctx.parts.map((p) => [p.id, p])) : new Map<string, Part>();
+  const gname = (gid: string) => (ctx?.doc.packGroups || []).find((g) => g.id === gid)?.name || '';
+  const out: PackItemIn[] = [];
+  for (const v of views) {
+    if (v.partKind === 'ignore') continue;
+    const base = {
+      refKind: v.kind, name: v.name, material: v.material, kind: (v.kind === 'composite' ? 'panel' : v.partKind) as PartKind, color: v.color,
+      L: v.L, W: v.W, T: v.T, artPos: v.rep.artPos || '',
+    };
+    const cav = ctx?.cavities ? ctx.cavities(v) : [];
+    if (!ctx) { out.push({ ...base, refUid: v.id, unitWeight: v.unitWeight, qty: v.qty, group: '', groupName: '', geom: v.rep.geom, cavities: [] }); continue; }
+    if (v.kind === 'composite') {
+      const comp = ctx.doc.composites.find((c) => c.id === v.id);
+      const gid = comp ? groupOfPart(ctx.doc, comp.mainId) || v.members.map((m) => groupOfPart(ctx.doc, m)).find((g) => !!g) || '' : '';
+      out.push({ ...base, refUid: v.id, unitWeight: v.unitWeight, qty: 1, group: gid, groupName: gname(gid), geom: geomOf(v.members.map((m) => byId.get(m))), cavities: cav });
+      continue;
+    }
+    const parts = new Map<string, string[]>();
+    for (const m of v.members) { const g = groupOfPart(ctx.doc, m); const a = parts.get(g); if (a) a.push(m); else parts.set(g, [m]); }
+    const split = parts.size > 1;
+    for (const [gid, ms] of parts) {
+      let unit = v.unitWeight;
+      let qty = v.qty;
+      if (split) {
+        qty = ctx.doc.rows.find((r) => r.id === v.id)?.qty == null ? ms.length : Math.round((v.qty * ms.length) / v.members.length);
+        let tw: number | null = 0;
+        for (const m of ms) {
+          const p = byId.get(m);
+          const w = p ? partWeight(p, eff(p, ctx.doc.edits[m]), ctx.mats) : null;
+          if (w == null) { tw = null; break; }
+          tw += w;
+        }
+        unit = tw == null ? null : tw / ms.length;
+      }
+      out.push({ ...base, refUid: split ? v.id + '~' + (gid || '0') : v.id, unitWeight: unit, qty, group: gid, groupName: gname(gid), geom: geomOf([byId.get(ms[0])]), cavities: cav });
+    }
+  }
+  return out;
+}
+
+/** Upokovka natijasi eskirganini aniqlash uchun imzo (A38): guruhlar va o'yiqlar ham hisobga olinadi. */
 export function packSignature(items: PackItemIn[]): string {
-  return fnv(JSON.stringify(items.map((i) => [i.refUid, i.name, i.L, i.W, i.T, i.unitWeight, i.qty, i.kind])));
+  return fnv(JSON.stringify(items.map((i) => [i.refUid, i.name, i.L, i.W, i.T, i.unitWeight, i.qty, i.kind, i.group, i.groupName, i.geom,
+    i.cavities.map((c) => [Math.round(c.x), Math.round(c.y), Math.round(c.z), Math.round(c.l), Math.round(c.w), Math.round(c.h), c.closed.map((f) => (f ? 1 : 0)).join('')])])));
 }

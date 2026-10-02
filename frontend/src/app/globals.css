@@ -125,7 +125,7 @@ button, input, select, textarea { font: inherit; color: inherit; }
 .btn.on { background: var(--primary-50); border-color: var(--primary-100); color: var(--primary); }
 .icon-btn { width: 32px; padding: 0; }
 .btn.sm.icon-btn { width: 28px; }
-.btn.xs.icon-btn { width: 24px; }
+.btn.xs.icon-btn { width: 30px; height: 30px; }
 
 .field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .field > span, .label { font-size: 12px; font-weight: 500; color: var(--muted); }
@@ -351,3 +351,33 @@ kbd { font-family: var(--mono); font-size: 11px; color: var(--muted); background
   .brand small { display: none; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Upokovka: operator ko'rinishi ---------- */
+.pack-body.operator { grid-template-columns: 300px 1fr 380px; }
+.op-side { font-size: 15px; }
+.op-boxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.op-box { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; border: 2px solid var(--line); background: var(--panel); border-radius: 4px; cursor: pointer; font-size: 15px; text-align: left; }
+.op-box b { font-size: 20px; }
+.op-box.on { border-color: var(--accent-600, #b45309); background: #fff7e6; }
+.op-box.ready { border-color: #1f9d55; background: #ecfdf5; }
+.op-grp { font-size: 12px; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.op-steps li { display: grid; grid-template-columns: 34px 1fr 22px; align-items: center; gap: 8px; padding: 8px; border: 1px solid var(--line); border-radius: 4px; cursor: pointer; font-size: 15px; }
+.op-steps li .n { font: 700 16px/1 var(--mono); text-align: center; }
+.op-steps li .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.op-steps li .ck { color: #1f9d55; font-weight: 700; }
+.op-steps li.done { background: #ecfdf5; color: #14532d; }
+.op-steps li.now { outline: 3px solid #e39a00; background: #fff7e6; }
+.op-progress .bar { height: 14px; margin-top: 8px; }
+.op-big { font-size: 24px; }
+.op-dims { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+.op-dims div { display: flex; flex-direction: column; font-size: 13px; color: var(--muted); }
+.op-dims b { font-size: 16px; color: var(--ink); }
+.op-cur { background: #fffaf0; }
+.op-step { font: 600 13px/16px var(--mono); color: var(--muted); text-transform: uppercase; }
+.op-name { font-size: 24px; font-weight: 700; margin: 4px 0 10px; line-height: 1.2; word-break: break-word; }
+.op-line { display: flex; justify-content: space-between; gap: 12px; padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 16px; }
+.op-line span { color: var(--muted); }
+.btn.op-main { min-height: 56px; font-size: 20px; font-weight: 700; justify-content: center; gap: 10px; }
+.btn.op-nav { min-height: 48px; font-size: 17px; justify-content: center; gap: 8px; }
+@media (max-width: 1100px) { .pack-body.operator { grid-template-columns: 240px 1fr 320px; } }

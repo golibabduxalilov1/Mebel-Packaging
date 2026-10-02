@@ -1,14 +1,15 @@
 'use client';
 import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, download, ApiError, type Order } from '@/lib/api';
+import { api, download, openPdf, ApiError, type Order } from '@/lib/api';
 import { PackEngine } from '@/lib/pack/PackEngine';
-import type { PackBox, PackResult, PackSettings } from '@/lib/types';
+import type { GroupSetting, PackBox, PackGroup, PackResult, PackSettings } from '@/lib/types';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { Icon } from '../ui/Icon';
 import { Modal, useToast } from '../ui/Modal';
 import { fmtN } from '../lab/PartsTable';
+import { OperatorLeft, OperatorRight, poseText, doneCount } from './OperatorView';
 
 function Num({ label, value, onChange, disabled, suffix, min = 0 }: { label: string; value: number; onChange(v: number): void; disabled?: boolean; suffix?: string; min?: number }) {
   return (
@@ -18,7 +19,7 @@ function Num({ label, value, onChange, disabled, suffix, min = 0 }: { label: str
   );
 }
 
-export function SettingsForm({ s, set, disabled }: { s: PackSettings; set(p: Partial<PackSettings>): void; disabled?: boolean }) {
+export function SettingsForm({ s, set, disabled, groups = [] }: { s: PackSettings; set(p: Partial<PackSettings>): void; disabled?: boolean; groups?: PackGroup[] }) {
   const { t } = useI18n();
   return (
     <div className="col" style={{ gap: 10 }}>
@@ -49,6 +50,44 @@ export function SettingsForm({ s, set, disabled }: { s: PackSettings; set(p: Par
         <Num label={t('pack.wall')} suffix="mm" value={s.wall} onChange={(v) => set({ wall: v })} disabled={disabled} />
       </div>
       <label className="check"><input type="checkbox" checked={s.includeHardware} disabled={disabled} onChange={(e) => set({ includeHardware: e.target.checked })} />{t('pack.includeHw')}</label>
+      {groups.length ? <GroupSettings s={s} set={set} disabled={disabled} groups={groups} /> : null}
+    </div>
+  );
+}
+
+/** Alohida upokovka guruhlari uchun karton sozlamalari: bo'sh maydon umumiy sozlamadan olinadi. */
+function GroupSettings({ s, set, disabled, groups }: { s: PackSettings; set(p: Partial<PackSettings>): void; disabled?: boolean; groups: PackGroup[] }) {
+  const { t } = useI18n();
+  const patch = (id: string, k: keyof GroupSetting, raw: string) => {
+    const cur: GroupSetting = { ...(s.groups?.[id] || {}) };
+    const v = Number(raw);
+    if (raw.trim() === '' || !isFinite(v) || v < 0 || (k !== 'padding' && v === 0)) delete cur[k]; else cur[k] = v;
+    const next = { ...(s.groups || {}) };
+    if (Object.keys(cur).length) next[id] = cur; else delete next[id];
+    set({ groups: next });
+  };
+  const manual = s.sizeMode === 'manual';
+  const global: Record<keyof GroupSetting, number> = { maxWeight: s.maxWeight, maxL: manual ? s.boxL : s.maxL, maxW: manual ? s.boxW : s.maxW, maxH: manual ? s.boxH : s.maxH, padding: s.padding };
+  const fields: { k: keyof GroupSetting; label: string }[] = [
+    { k: 'maxWeight', label: t('pack.maxWeight') + ' (kg)' }, { k: 'maxL', label: manual ? t('pack.boxL') : t('pack.maxL') }, { k: 'maxW', label: manual ? t('pack.boxW') : t('pack.maxW') },
+    { k: 'maxH', label: manual ? t('pack.boxH') : t('pack.maxH') }, { k: 'padding', label: t('pack.padding') + ' (mm)' },
+  ];
+  return (
+    <div className="col" style={{ gap: 8 }}>
+      <div className="label">{t('pack.groupSettings')}</div>
+      <div className="small muted">{t('pack.groupSettingsNote')}</div>
+      {groups.map((g) => (
+        <details key={g.id} className="card card-pad" style={{ padding: 8 }} open={!!s.groups?.[g.id]}>
+          <summary style={{ cursor: 'pointer' }}><span className="swatch" style={{ background: g.color, marginRight: 6 }} />{g.name}{s.groups?.[g.id] ? <span className="badge accent" style={{ marginLeft: 6 }}>{t('pack.custom')}</span> : null}</summary>
+          <div className="grid2" style={{ marginTop: 8 }}>
+            {fields.map((f) => (
+              <label key={f.k} className="field"><span>{f.label}</span>
+                <input className="input sm num" type="number" min={0} step="any" disabled={disabled} placeholder={String(global[f.k])} value={s.groups?.[g.id]?.[f.k] ?? ''} onChange={(e) => patch(g.id, f.k, e.target.value)} />
+              </label>
+            ))}
+          </div>
+        </details>
+      ))}
     </div>
   );
 }
@@ -76,7 +115,18 @@ export function PackWorkspace({ order }: { order: Order }) {
   const [explode, setExplode] = useState(0);
   const [dirtySettings, setDirtySettings] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const canRun = can('P5'), canSettings = can('P6'), canEdit = can('P7'), canExport = can('P8');
+  const [groups, setGroups] = useState<PackGroup[]>([]);
+  const canRun = can('P5'), canSettings = can('P6'), canEdit = can('P7'), canExport = can('P8'), canMark = can('P11') || can('P7');
+  const pureOperator = !canRun && !canSettings && !canEdit;
+  const [operator, setOperator] = useState<boolean>(false);
+  const [showAll, setShowAll] = useState(false);
+  useEffect(() => {
+    let v = pureOperator;
+    try { const x = localStorage.getItem('pack.operator'); if (x != null && !pureOperator) v = x === '1'; } catch { /* ignore */ }
+    setOperator(v);
+  }, [pureOperator]);
+  const toggleOperator = (v: boolean) => { setOperator(v); try { localStorage.setItem('pack.operator', v ? '1' : '0'); } catch { /* ignore */ } };
+  useEffect(() => { api.lab(order.id).then((l) => setGroups(l.doc?.packGroups || [])).catch(() => undefined); }, [order.id]);
 
   const load = useCallback(async () => {
     const r = await api.pack(order.id);
@@ -94,7 +144,7 @@ export function PackWorkspace({ order }: { order: Order }) {
       setResult(r);
       push(t('pack.moved', { n: to }), 'ok');
     } catch (e) {
-      push(e instanceof ApiError && e.code === 'over_limit' ? t('pack.overLimit') : e instanceof ApiError && e.code === 'no_fit' ? t('pack.noFit') : e instanceof Error ? e.message : String(e), 'error');
+      push(e instanceof ApiError && e.code === 'over_limit' ? t('pack.overLimit') : e instanceof ApiError && e.code === 'no_fit' ? t('pack.noFit') : e instanceof ApiError && e.code === 'group_mix' ? t('pack.groupMix') : e instanceof ApiError && e.code === 'composite_split' ? t('pack.compositeSplit') : e instanceof Error ? e.message : String(e), 'error');
     }
   }, [order.id, canEdit, push, t]);
 
@@ -119,9 +169,20 @@ export function PackWorkspace({ order }: { order: Order }) {
     e.setBoxes(boxes, false);
   }, [boxes]);
   useEffect(() => {
-    engine.current?.setLabelText((b) => `<b>№${b.no}</b> · ${fmtN(b.weight, 1)} kg · ${Math.round(b.l)}×${Math.round(b.w)}×${Math.round(b.h)}`);
+    engine.current?.setLabelText((b) => `<b>№${b.no}</b>${b.groupName ? ' · ' + b.groupName : ''} · ${fmtN(b.weight, 1)} kg · ${Math.round(b.l)}×${Math.round(b.w)}×${Math.round(b.h)}`);
   }, [boxes, lang]);
-  useEffect(() => { engine.current?.setView({ boxNo, lid, top, layer, explode, selected: sel }); }, [boxNo, lid, top, layer, explode, sel, boxes]);
+  const opBox = operator ? boxes.find((b) => b.no === boxNo) || boxes.find((b) => !b.ready) || boxes[0] || null : null;
+  // operator ko'rinishida bitta karton ochiq, joriy qadamgacha bo'lgan detallar ko'rinadi
+  useEffect(() => {
+    if (!operator || !opBox) return;
+    if (boxNo !== opBox.no) setBoxNo(opBox.no);
+    if (!sel || !opBox.items.some((i) => i.uid === sel)) setSel((opBox.items.find((i) => !i.done) || opBox.items[0] || { uid: null }).uid);
+  }, [operator, opBox, boxNo, sel]);
+  const opCur = operator && opBox && sel ? opBox.items.find((i) => i.uid === sel) : null;
+  const doneSet = useMemo(() => new Set(boxes.flatMap((b) => b.items.filter((i) => i.done).map((i) => i.uid))), [boxes]);
+  useEffect(() => {
+    engine.current?.setView({ boxNo, lid, top, layer, explode, selected: sel, stepMax: opCur && !showAll ? opCur.step : null, done: doneSet });
+  }, [boxNo, lid, top, layer, explode, sel, boxes, opCur, showAll, doneSet]);
   useEffect(() => { if (boxNo != null && !boxes.some((b) => b.no === boxNo)) setBoxNo(null); }, [boxes, boxNo]);
 
   const run = async () => {
@@ -151,43 +212,45 @@ export function PackWorkspace({ order }: { order: Order }) {
   return (
     <div className="pack">
       <div className="pack-bar">
-        <Link href={`/lab?id=${order.id}`} className="btn sm"><Icon name="chevronL" size={15} />{t('pack.toLab')}</Link>
+        {pureOperator ? <Link href="/orders" className="btn sm"><Icon name="chevronL" size={15} />{t('nav.orders')}</Link> : <Link href={`/lab?id=${order.id}`} className="btn sm"><Icon name="chevronL" size={15} />{t('pack.toLab')}</Link>}
         <div className="title" style={{ display: 'flex', flexDirection: 'column' }}>
           <b>{order.number} · {order.name}</b>
           <span className="small muted">{t('pack.env')} · {t('pack.itemsCount', { n: itemsCount })}</span>
         </div>
         <div className="row" style={{ marginLeft: 'auto', gap: 8 }}>
-          <button className="btn sm" disabled={!result || !canExport} onClick={() => setExportOpen(true)} title={!canExport ? t('perm.need', { p: 'P8' }) : ''}><Icon name="print" size={15} />{t('pack.export')}</button>
-          <button className="btn sm accent" disabled={!canRun || busy || !settings} onClick={run} title={!canRun ? t('perm.need', { p: 'P5' }) : ''}>
+          {!pureOperator ? <button className={'btn sm' + (operator ? ' on' : '')} aria-pressed={operator} onClick={() => toggleOperator(!operator)} title={t('op.toggleHint')}><Icon name="hand" size={15} />{t('op.view')}</button> : null}
+          {operator ? null : <button className="btn sm" disabled={!result || !canExport} onClick={() => setExportOpen(true)} title={!canExport ? t('perm.need', { p: 'P8' }) : ''}><Icon name="print" size={15} />{t('pack.export')}</button>}
+          {operator ? null : <button className="btn sm accent" disabled={!canRun || busy || !settings} onClick={run} title={!canRun ? t('perm.need', { p: 'P5' }) : ''}>
             <Icon name="play" size={15} />{busy ? t('pack.running') : result ? t('pack.rerun') : t('pack.run')}
-          </button>
+          </button>}
         </div>
       </div>
       <div style={{ display: 'grid', gridTemplateRows: 'auto 1fr', minHeight: 0 }}>
         {result?.stale ? <div className="stale"><Icon name="warn" size={16} />{t('pack.stale')}<button className="btn xs" disabled={!canRun || busy} onClick={run}>{t('pack.rerun')}</button></div> : <div />}
-        <div className="pack-body">
-          <aside className="side left">
+        <div className={'pack-body' + (operator ? ' operator' : '')}>
+          {operator ? <OperatorLeft boxes={boxes} box={opBox} onBox={(no) => { setBoxNo(no); setSel(null); }} sel={sel} onSel={setSel} /> : null}
+          {operator ? null : <aside className="side left">
             <div className="side-scroll">
               <div className="side-sec">
                 <h4>{t('pack.settings')}</h4>
-                {settings ? <SettingsForm s={settings} disabled={!canSettings} set={(p) => { setSettings({ ...settings, ...p }); setDirtySettings(true); }} /> : <div className="muted">{t('common.loading')}</div>}
+                {settings ? <SettingsForm s={settings} groups={groups} disabled={!canSettings} set={(p) => { setSettings({ ...settings, ...p }); setDirtySettings(true); }} /> : <div className="muted">{t('common.loading')}</div>}
                 {dirtySettings ? <div className="small" style={{ color: 'var(--accent-600)', marginTop: 10 }}>{t('pack.settingsDirty')}</div> : null}
                 {!canSettings ? <div className="small muted" style={{ marginTop: 10 }}>{t('perm.need', { p: 'P6' })}</div> : null}
               </div>
               <div className="side-sec small muted">
                 <h4>{t('pack.rules')}</h4>
                 <ul style={{ margin: 0, paddingLeft: 18 }}>
-                  {['r1', 'r2', 'r3', 'r4', 'r5', 'r6'].map((r) => <li key={r}>{t('pack.rule.' + r)}</li>)}
+                  {['r1', 'r2', 'r3', 'r4', 'r5', 'r6', 'r7', 'r8'].map((r) => <li key={r}>{t('pack.rule.' + r)}</li>)}
                 </ul>
               </div>
             </div>
-          </aside>
+          </aside>}
           <div className="pack-vp">
             <div ref={host} style={{ position: 'absolute', inset: 0 }} />
             {!boxes.length ? <div className="vp-empty"><div style={{ textAlign: 'center' }}><Icon name="box" size={40} /><div style={{ marginTop: 8 }}>{t('pack.empty')}</div></div></div> : null}
             <div className="vp-tools">
               <div className="grp">
-                <button className={lid ? 'on' : ''} onClick={() => setLid(!lid)} title={t('pack.lid')} aria-pressed={lid}><Icon name="lid" size={17} /></button>
+                {operator ? null : <button className={lid ? 'on' : ''} onClick={() => setLid(!lid)} title={t('pack.lid')} aria-pressed={lid}><Icon name="lid" size={17} /></button>}
                 <button className={top ? 'on' : ''} onClick={() => setTop(!top)} title={t('pack.top2d')} aria-pressed={top}><Icon name="top" size={17} /></button>
                 <button onClick={() => engine.current?.fit()} title={t('vp.focus')}><Icon name="focus" size={17} /></button>
               </div>
@@ -203,7 +266,7 @@ export function PackWorkspace({ order }: { order: Order }) {
                 </label>
               </div>
             ) : null}
-            {boxes.length ? (
+            {boxes.length && !operator ? (
               <div className="box-nav" role="tablist" aria-label={t('pack.boxes')}>
                 <button className="btn xs icon-btn" disabled={boxNo == null || boxNo <= 1} onClick={() => setBoxNo(boxNo == null ? 1 : Math.max(1, boxNo - 1))} aria-label={t('common.back')}><Icon name="chevronL" size={14} /></button>
                 <button className={'boxbtn' + (boxNo == null ? ' on' : '')} onClick={() => setBoxNo(null)}>{t('pack.allBoxes')}</button>
@@ -211,9 +274,10 @@ export function PackWorkspace({ order }: { order: Order }) {
                 <button className="btn xs icon-btn" disabled={boxNo != null && boxNo >= boxes.length} onClick={() => setBoxNo(boxNo == null ? 1 : Math.min(boxes.length, boxNo + 1))} aria-label={t('common.next')}><Icon name="chevronR" size={14} /></button>
               </div>
             ) : null}
-            {boxNo == null && boxes.length > 1 && canEdit ? <div className="vp-hint" style={{ background: 'rgba(16,29,38,.78)' }}>{t('pack.dragHint')}</div> : null}
+            {!operator && boxNo == null && boxes.length > 1 && canEdit ? <div className="vp-hint" style={{ background: 'rgba(16,29,38,.78)' }}>{t('pack.dragHint')}</div> : null}
           </div>
-          <aside className="side right">
+          {operator && result ? <OperatorRight order={order} box={opBox} sel={sel} onSel={setSel} onResult={setResult} canMark={canMark} canPrint={canExport} showAll={showAll} onShowAll={setShowAll} /> : null}
+          {operator ? null : <aside className="side right">
             <div className="side-scroll">
               {result ? (
                 <div className="side-sec">
@@ -222,6 +286,15 @@ export function PackWorkspace({ order }: { order: Order }) {
                     <div className="field"><span>{t('pack.totalWeight')}</span><b className="mono" style={{ fontSize: 15 }}>{fmtN(totalW, 1)} kg</b></div>
                     <div className="field"><span>{t('pack.avgFill')}</span><b className="mono" style={{ fontSize: 15 }}>{Math.round(avgFill * 100)}%</b></div>
                   </div>
+                </div>
+              ) : null}
+              {result && result.summary.length ? (
+                <div className="side-sec">
+                  <h4>{t('pack.summary')}</h4>
+                  <table className="tbl compact" style={{ fontSize: 12.5 }}>
+                    <thead><tr><th>{t('pack.outer')}</th><th className="num">{t('pack.count')}</th><th>№</th></tr></thead>
+                    <tbody>{result.summary.map((m) => <tr key={`${m.l}x${m.w}x${m.h}`}><td className="mono">{m.l}×{m.w}×{m.h}</td><td className="num"><b>{m.count}</b></td><td className="small muted">{m.nos.join(', ')}</td></tr>)}</tbody>
+                  </table>
                 </div>
               ) : null}
               {result && (result.warnings.length || result.unplaced.length) ? (
@@ -237,7 +310,8 @@ export function PackWorkspace({ order }: { order: Order }) {
                 <div className="side-sec">
                   <h4>{t('pack.selItem')}</h4>
                   <div><b>{selItem.name}</b></div>
-                  <div className="small muted mono">{Math.round(selItem.l)}×{Math.round(selItem.w)}×{Math.round(selItem.h)} mm · {fmtN(selItem.weight, 2)} kg · {t('pack.layerN', { n: selItem.layer + 1 })}{selItem.rotated ? ' · ↻90°' : ''}</div>
+                  <div className="small muted mono">{Math.round(selItem.unitL)}×{Math.round(selItem.unitW)}×{Math.round(selItem.unitT)} mm · {fmtN(selItem.weight, 2)} kg · {t('pack.layerN', { n: selItem.layer + 1 })} · {t('op.step')} {selItem.step}</div>
+                  <div className="small">{poseText(t, selItem)}{selItem.artPos ? ` · ArtPos ${selItem.artPos}` : ''}{selItem.geom === 'none' ? ` · ${t('warn.bbox_only')}` : ''}</div>
                   {canEdit && boxes.length > 1 ? (
                     <label className="field" style={{ marginTop: 8 }}><span>{t('pack.moveTo')}</span>
                       <select className="select sm" value={selItem.box} onChange={(e) => void doMove(selItem.uid, Number(e.target.value))}>
@@ -252,7 +326,7 @@ export function PackWorkspace({ order }: { order: Order }) {
               </div>
               {cur ? <BoxContents box={cur} boxes={boxes} canEdit={canEdit} sel={sel} onSel={setSel} onMove={doMove} onLimit={(v) => void setLimit(cur.no, v)} /> : null}
             </div>
-          </aside>
+          </aside>}
         </div>
       </div>
       {exportOpen && result ? <ExportModal order={order} result={result} onClose={() => setExportOpen(false)} /> : null}
@@ -263,17 +337,21 @@ export function PackWorkspace({ order }: { order: Order }) {
 function BoxCard({ b, on, onClick }: { b: PackBox; on: boolean; onClick(): void }) {
   const { t } = useI18n();
   const wPct = b.maxWeight > 0 ? Math.min(1, b.weight / b.maxWeight) : 0;
+  const dn = doneCount(b);
   return (
     <div className={'box-card' + (on ? ' on' : '')} onClick={onClick} role="button" tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') onClick(); }}>
       <div className="row">
         <span className="no">{b.no}</span>
         <div className="grow">
-          <div className="mono small"><b>{Math.round(b.l)}×{Math.round(b.w)}×{Math.round(b.h)}</b> mm</div>
-          <div className="small muted">{t('pack.itemsN', { n: b.items.length })} · {t('pack.fill')} {Math.round(b.fill * 100)}%</div>
+          <div className="mono small"><span className="muted">{t('pack.inner')}:</span> <b>{Math.round(b.innerL)}×{Math.round(b.innerW)}×{Math.round(b.innerH)}</b></div>
+          <div className="mono small"><span className="muted">{t('pack.outer')}:</span> <b>{Math.round(b.l)}×{Math.round(b.w)}×{Math.round(b.h)}</b> mm</div>
+          <div className="small muted">{t('pack.itemsN', { n: b.items.length })} · {t('pack.fill')} {Math.round(b.fill * 100)}%{dn ? ` · ✓ ${dn}/${b.items.length}` : ''}{b.ready ? ` · ${t('op.ready')}` : ''}</div>
+          {b.groupName ? <span className="badge accent" style={{ marginTop: 4 }}>{b.groupName}</span> : null}
         </div>
         <div className="mono small" style={{ textAlign: 'right' }}><b>{fmtN(b.weight, 1)}</b><span className="muted">/{fmtN(b.maxWeight, 0)} kg</span></div>
       </div>
       <div className={'bar ' + fillCls(b.fill, b.weight, b.maxWeight)} style={{ marginTop: 8 }}><i style={{ width: wPct * 100 + '%' }} /></div>
+      {b.issues.map((i) => <div key={i} className="alert err small" style={{ marginTop: 6 }}><Icon name="warn" size={14} />{t('issue.' + i)}</div>)}
     </div>
   );
 }
@@ -321,6 +399,11 @@ function ExportModal({ order, result, onClose }: { order: Order; result: PackRes
   const { t, lang } = useI18n();
   const push = useToast();
   const [busy, setBusy] = useState('');
+  const [instrNo, setInstrNo] = useState(result.boxes[0]?.no ?? 1);
+  const instr = async () => {
+    setBusy('instr');
+    try { await openPdf(api.instructionUrl(order.id, instrNo, lang)); } catch (e) { push(e instanceof Error ? e.message : String(e), 'error'); } finally { setBusy(''); }
+  };
   const get = async (kind: 'report.xlsx' | 'report.pdf' | 'labels.pdf') => {
     setBusy(kind);
     const names = { 'report.xlsx': t('exp.fileReport') + '.xlsx', 'report.pdf': t('exp.fileReport') + '.pdf', 'labels.pdf': t('exp.fileLabels') + '.pdf' };
@@ -346,6 +429,16 @@ function ExportModal({ order, result, onClose }: { order: Order; result: PackRes
             <p className="small muted">{t('exp.labelsNote', { n: result.boxes.length })}</p>
             <button className="btn sm primary" disabled={!!busy} onClick={() => get('labels.pdf')}><Icon name="print" size={15} />{t('exp.labelsPdf')}</button>
           </div>
+          <div className="card card-pad">
+            <div className="row"><Icon name="file" size={20} /><b>{t('exp.instr')}</b></div>
+            <p className="small muted">{t('exp.instrNote')}</p>
+            <div className="row">
+              <select className="select sm" value={instrNo} onChange={(e) => setInstrNo(Number(e.target.value))} aria-label={t('exp.instr')}>
+                {result.boxes.map((x) => <option key={x.no} value={x.no}>№{x.no}{x.groupName ? ' · ' + x.groupName : ''}</option>)}
+              </select>
+              <button className="btn sm primary" disabled={!!busy} onClick={instr}><Icon name="print" size={15} />{t('exp.instrPdf')}</button>
+            </div>
+          </div>
           {busy ? <div className="small muted">{t('exp.busy')}</div> : null}
         </div>
         {b ? (
@@ -358,6 +451,8 @@ function ExportModal({ order, result, onClose }: { order: Order; result: PackRes
                 <div className="big">№ {b.no} / {result.boxes.length}</div>
                 <div style={{ textAlign: 'right' }}>
                   <div className="mono">{Math.round(b.l)}×{Math.round(b.w)}×{Math.round(b.h)} mm</div>
+                  <div className="mono small">{t('pack.inner')}: {Math.round(b.innerL)}×{Math.round(b.innerW)}×{Math.round(b.innerH)}</div>
+                  {b.groupName ? <div className="small">{b.groupName}</div> : null}
                   <div className="mono"><b>{fmtN(b.weight, 1)} kg</b></div>
                 </div>
               </div>

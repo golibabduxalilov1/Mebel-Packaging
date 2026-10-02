@@ -54,6 +54,7 @@ function NewOrder({ onClose, onCreated }: { onClose(): void; onCreated(o: Order)
 function OrdersInner() {
   const { t, lang } = useI18n();
   const { can } = useAuth();
+  const opOnly = !can('P1') && !can('P2') && !can('P3') && !can('P4'); // faqat upokovka muhiti (Upokovkachi roli)
   const push = useToast();
   const router = useRouter();
   const [list, setList] = useState<Order[] | null>(null);
@@ -137,7 +138,7 @@ function OrdersInner() {
             <tbody>
               {all.map((o) => (
                 <tr key={o.id}>
-                  <td className="mono"><Link href={`/lab?id=${o.id}`}><b>{o.number}</b></Link></td>
+                  <td className="mono"><Link href={`${opOnly ? '/pack' : '/lab'}?id=${o.id}`}><b>{o.number}</b></Link></td>
                   <td style={{ maxWidth: 280 }}>
                     <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{o.name}</div>
                     <div className="mono faint" style={{ fontSize: 10 }}>{[o.client, o.note].filter(Boolean).join(' | ') || '—'}</div>
@@ -151,10 +152,10 @@ function OrdersInner() {
                   </td>
                   <td className="mono muted nowrap" style={{ fontSize: 10 }}>{date(o.updatedAt)}</td>
                   <td className="nowrap" style={{ textAlign: 'right' }}>
-                    <Link className="btn xs icon-btn ghost" href={`/lab?id=${o.id}`} title={t('orders.openLab')} aria-label={t('orders.openLab')}><Icon name="box" size={16} /></Link>
-                    <Link className="btn xs icon-btn ghost" href={`/pack?id=${o.id}`} title={t('orders.openPack')} aria-label={t('orders.openPack')}><Icon name="layers" size={16} /></Link>
-                    {can('P1') ? <button className="btn xs icon-btn ghost" onClick={() => dup(o)} title={t('orders.duplicate')} aria-label={t('orders.duplicate')}><Icon name="copy" size={16} /></button> : null}
-                    {can('P1') ? <button className="btn xs icon-btn ghost danger" onClick={() => setDel(o)} title={t('common.delete')} aria-label={t('common.delete')}><Icon name="trash" size={16} /></button> : null}
+                    {opOnly ? null : <Link className="btn xs icon-btn ghost" href={`/lab?id=${o.id}`} title={t('orders.openLab')} aria-label={t('orders.openLab')}><Icon name="box" size={20} /></Link>}
+                    <Link className="btn xs icon-btn ghost" href={`/pack?id=${o.id}`} title={t('orders.openPack')} aria-label={t('orders.openPack')}><Icon name="layers" size={20} /></Link>
+                    {can('P1') ? <button className="btn xs icon-btn ghost" onClick={() => dup(o)} title={t('orders.duplicate')} aria-label={t('orders.duplicate')}><Icon name="copy" size={20} /></button> : null}
+                    {can('P1') ? <button className="btn xs icon-btn ghost danger" onClick={() => setDel(o)} title={t('common.delete')} aria-label={t('common.delete')}><Icon name="trash" size={20} /></button> : null}
                   </td>
                 </tr>
               ))}

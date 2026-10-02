@@ -18,6 +18,7 @@ var AllPermissions = []struct{ Code, UZ, RU string }{
 	{"P8", "Eksport (hisobot, yorliq)", "Экспорт (отчёт, этикетки)"},
 	{"P9", "Tarixni ko'rish", "Просмотр истории"},
 	{"P10", "Foydalanuvchi va rollar", "Пользователи и роли"},
+	{"P11", "Upokovka muhitida belgilash (Joylandi, Tayyor)", "Отметки в среде упаковки (Уложено, Готово)"},
 }
 
 type Role struct {
@@ -36,14 +37,14 @@ type RolePermission struct {
 }
 
 type User struct {
-	ID           uint      `gorm:"primaryKey"`
-	Login        string    `gorm:"size:100;uniqueIndex;not null"`
-	FullName     string    `gorm:"size:200"`
-	PasswordHash string    `gorm:"size:200;not null"`
-	RoleID       uint      `gorm:"index;not null"`
-	Role         Role      `gorm:"constraint:OnDelete:RESTRICT"`
-	Lang         string    `gorm:"size:2;default:uz"`
-	Active       bool      `gorm:"default:true"`
+	ID           uint   `gorm:"primaryKey"`
+	Login        string `gorm:"size:100;uniqueIndex;not null"`
+	FullName     string `gorm:"size:200"`
+	PasswordHash string `gorm:"size:200;not null"`
+	RoleID       uint   `gorm:"index;not null"`
+	Role         Role   `gorm:"constraint:OnDelete:RESTRICT"`
+	Lang         string `gorm:"size:2;default:uz"`
+	Active       bool   `gorm:"default:true"`
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
 }
@@ -60,22 +61,22 @@ type Material struct {
 
 // Order: buyurtma (F30). Manba fayl serverda saqlanadi, import brauzerda bajariladi.
 type Order struct {
-	ID            uint           `gorm:"primaryKey"`
-	Number        string         `gorm:"size:30;uniqueIndex;not null"`
-	Name          string         `gorm:"size:300"`
-	Client        string         `gorm:"size:300;index"`
-	Note          string         `gorm:"size:1000"`
-	FileName      string         `gorm:"size:300"`
-	Format        string         `gorm:"size:10"`
+	ID            uint   `gorm:"primaryKey"`
+	Number        string `gorm:"size:30;uniqueIndex;not null"`
+	Name          string `gorm:"size:300"`
+	Client        string `gorm:"size:300;index"`
+	Note          string `gorm:"size:1000"`
+	FileName      string `gorm:"size:300"`
+	Format        string `gorm:"size:10"`
 	FileSize      int64
-	Status        string         `gorm:"size:10;default:new;index"` // new | lab | packed | done
+	Status        string `gorm:"size:10;default:new;index"` // new | lab | packed | done
 	PartsCount    int
 	BoxesCount    int
-	Gabarit       string         `gorm:"size:60"`
+	Gabarit       string `gorm:"size:60"`
 	ImportOptions datatypes.JSON
-	CreatedByID   *uint          `gorm:"index"`
-	CreatedBy     *User          `gorm:"constraint:OnDelete:SET NULL"`
-	CreatedAt     time.Time      `gorm:"index"`
+	CreatedByID   *uint     `gorm:"index"`
+	CreatedBy     *User     `gorm:"constraint:OnDelete:SET NULL"`
+	CreatedAt     time.Time `gorm:"index"`
 	UpdatedAt     time.Time
 }
 
@@ -106,17 +107,17 @@ type SceneState struct {
 
 // Part: detallar xulosasi (hisobot va qidiruv uchun). Asl geometriya manba faylda.
 type Part struct {
-	ID       uint     `gorm:"primaryKey"`
-	OrderID  uint     `gorm:"index;not null"`
-	PartID   string   `gorm:"size:40;not null"`
-	Name     string   `gorm:"size:300"`
-	Material string   `gorm:"size:200"`
-	Kind     string   `gorm:"size:10"`
+	ID       uint   `gorm:"primaryKey"`
+	OrderID  uint   `gorm:"index;not null"`
+	PartID   string `gorm:"size:40;not null"`
+	Name     string `gorm:"size:300"`
+	Material string `gorm:"size:200"`
+	Kind     string `gorm:"size:10"`
 	L        *float64
 	W        *float64
 	T        *float64
 	Weight   *float64
-	RowID    string   `gorm:"size:60;index"`
+	RowID    string `gorm:"size:60;index"`
 }
 
 // PartMerge: birlashtirilgan qator a'zoligi (F14/F15).
@@ -173,6 +174,9 @@ type Box struct {
 	MaxWeight     float64
 	LimitOverride *float64
 	Fill          float64
+	Group         string    `gorm:"size:60;index"` // alohida upokovka guruhi id (bo'sh = umumiy)
+	GroupName     string    `gorm:"size:200"`
+	Ready         bool      // operator "Tayyor" belgisi
 	Items         []BoxItem `gorm:"constraint:OnDelete:CASCADE"`
 }
 
@@ -191,6 +195,18 @@ type BoxItem struct {
 	Rotated  bool
 	Layer    int
 	Weight   float64
+	// Joylashuv: L,W,H = karton o'qlari bo'yicha o'lcham; UL,UW,UT = detalning o'z o'lchamlari (L >= W >= T).
+	UL, UW, UT float64
+	Orient     int
+	Pose       string `gorm:"size:10"` // flat | upright
+	Up         string `gorm:"size:2"`
+	Step       int
+	Host       string         `gorm:"size:80"` // ichiga joylangan bo'lsa tashqi detal UID
+	Done       bool           // operator "Joylandi" belgisi
+	ArtPos     string         `gorm:"size:100"`
+	Geom       string         `gorm:"size:10"`
+	GroupID    string         `gorm:"size:60"`
+	Cavities   datatypes.JSON // detal ichidagi bo'shliqlar (detal o'qlarida)
 }
 
 // PackRun: oxirgi hisoblash meta-ma'lumoti (ogohlantirishlar, imzo).

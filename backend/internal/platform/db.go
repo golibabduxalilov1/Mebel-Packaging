@@ -29,11 +29,22 @@ type PackSettings struct {
 	Wall            float64            `json:"wall"`
 	IncludeHardware bool               `json:"includeHardware"`
 	BoxLimits       map[string]float64 `json:"boxLimits"`
+	// Groups: alohida upokovka guruhlari uchun karton sozlamalari (guruh id bo'yicha); berilmagan maydon umumiy sozlamadan olinadi.
+	Groups map[string]GroupSetting `json:"groups"`
+}
+
+// GroupSetting: guruhning karton sozlamalari. MaxL/MaxW/MaxH: avto rejimda o'lcham chegarasi, qo'lda rejimda karton o'lchami.
+type GroupSetting struct {
+	MaxWeight *float64 `json:"maxWeight,omitempty"`
+	MaxL      *float64 `json:"maxL,omitempty"`
+	MaxW      *float64 `json:"maxW,omitempty"`
+	MaxH      *float64 `json:"maxH,omitempty"`
+	Padding   *float64 `json:"padding,omitempty"`
 }
 
 func DefaultPackSettings() PackSettings {
 	return PackSettings{MaxWeight: 30, SizeMode: "auto", MaxL: 2800, MaxW: 1200, MaxH: 600, BoxL: 2000, BoxW: 600, BoxH: 300,
-		Padding: 10, Wall: 5, IncludeHardware: false, BoxLimits: map[string]float64{}}
+		Padding: 10, Wall: 5, IncludeHardware: false, BoxLimits: map[string]float64{}, Groups: map[string]GroupSetting{}}
 }
 
 func Connect(cfg Config) (*gorm.DB, error) {
@@ -77,10 +88,11 @@ func seed(db *gorm.DB, cfg Config) error {
 			name, desc string
 			perms      []string
 		}{
-			{"Administrator", "Barcha huquqlar", []string{"P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10"}},
+			{"Administrator", "Barcha huquqlar", []string{"P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8", "P9", "P10", "P11"}},
 			{"Texnolog", "Import, tahrirlash, birlashtirish, yelimlash", []string{"P1", "P2", "P3", "P4", "P5", "P8", "P9"}},
 			{"Qadoqlovchi", "Upokovka, natijani tahrirlash, eksport", []string{"P5", "P6", "P7", "P8", "P9"}},
 			{"Kuzatuvchi", "Faqat ko'rish", []string{"P9"}},
+			{OperatorRole, "Upokovka muhitini ko'rish, belgilash va chop etish", []string{"P8", "P9", "P11"}},
 		}
 		for i, r := range roles {
 			role := Role{Name: r.name, Description: r.desc, System: i == 0}
@@ -92,6 +104,7 @@ func seed(db *gorm.DB, cfg Config) error {
 			}
 		}
 	}
+	ensureOperatorRole(db)
 	db.Model(&User{}).Count(&n)
 	if n == 0 {
 		var admin Role
@@ -156,6 +169,9 @@ func LoadPackSettings(db *gorm.DB, orderID uint) PackSettings {
 	if s.BoxLimits == nil {
 		s.BoxLimits = map[string]float64{}
 	}
+	if s.Groups == nil {
+		s.Groups = map[string]GroupSetting{}
+	}
 	return s
 }
 
@@ -194,5 +210,42 @@ func ValidatePackSettings(s *PackSettings) error {
 	if s.BoxLimits == nil {
 		s.BoxLimits = map[string]float64{}
 	}
+	if s.Groups == nil {
+		s.Groups = map[string]GroupSetting{}
+	}
+	for id, g := range s.Groups {
+		for _, v := range []*float64{g.MaxWeight, g.MaxL, g.MaxW, g.MaxH} {
+			if v != nil && *v <= 0 {
+				return fmt.Errorf("guruh %q: qiymatlar musbat bo'lishi kerak", id)
+			}
+		}
+		if g.Padding != nil && *g.Padding < 0 {
+			return fmt.Errorf("guruh %q: bo'shliq manfiy bo'lmasin", id)
+		}
+	}
 	return nil
+}
+
+// OperatorRole: upokovkachi roli nomi.
+const OperatorRole = "Upokovkachi"
+
+// ensureOperatorRole: eski bazalarda ham P11 ruxsati (tizim roliga) va "Upokovkachi" roli bo'lishini ta'minlaydi.
+func ensureOperatorRole(db *gorm.DB) {
+	var sys Role
+	if err := db.Where(`"system" = ?`, true).First(&sys).Error; err == nil {
+		var c int64
+		db.Model(&RolePermission{}).Where("role_id = ? and code = ?", sys.ID, "P11").Count(&c)
+		if c == 0 {
+			db.Create(&RolePermission{RoleID: sys.ID, Code: "P11"})
+		}
+	}
+	var n int64
+	db.Model(&Role{}).Where("name = ?", OperatorRole).Count(&n)
+	if n == 0 {
+		role := Role{Name: OperatorRole, Description: "Upokovka muhitini ko'rish, belgilash va chop etish"}
+		for _, p := range []string{"P8", "P9", "P11"} {
+			role.Permissions = append(role.Permissions, RolePermission{Code: p})
+		}
+		db.Create(&role)
+	}
 }

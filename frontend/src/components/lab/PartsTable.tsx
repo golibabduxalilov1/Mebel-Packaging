@@ -16,6 +16,7 @@ export function PartsTable({ store }: { store: LabStore }) {
   const hidden = useLab(store, (s) => s.hidden);
   const mode = useLab(store, (s) => s.mode);
   const glue = useLab(store, (s) => s.glue);
+  const doc = useLab(store, (s) => s.doc);
   const [q, setQ] = useState('');
   const [kind, setKind] = useState('');
   const [mat, setMat] = useState('');
@@ -87,7 +88,7 @@ export function PartsTable({ store }: { store: LabStore }) {
   const num = (n: number | null, d = 1) => { const f = fmtN(n, d); return f == null ? <span className="unknown">{unknown}</span> : f; };
 
   const totalParts = views.reduce((s, v) => s + v.members.length, 0);
-  const totalW = views.reduce<number | null>((s, v) => (s == null || v.totalWeight == null ? null : s + v.totalWeight), 0);
+  const totalW = views.reduce<number | null>((s, v) => (s == null ? null : v.partKind === 'hardware' ? s : v.totalWeight == null ? null : s + v.totalWeight), 0);
 
   const renderRow = (v: RowView) => {
             const sel = isSel(v);
@@ -124,7 +125,11 @@ export function PartsTable({ store }: { store: LabStore }) {
                   <td className="nowrap">{v.kind === 'composite' ? t('kind.composite') : t('kind.' + v.partKind)}</td>
                   <td className="small" style={{ maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={v.edgeText}>{v.edgeText || <span className="unknown">{unknown}</span>}</td>
                   <td className="small nowrap">{v.group || '—'}</td>
-                  <td className="num">{num(v.totalWeight, 2)}</td>
+                  <td className="small nowrap">{(() => {
+                    const gids = [...new Set(v.members.map((m) => doc.partGroup?.[m] || ''))];
+                    return gids.map((gid) => { const g = gid ? (doc.packGroups || []).find((x) => x.id === gid) : null; return g ? <span key={gid} className="badge" style={{ borderColor: g.color, color: g.color }} title={g.name}>{g.name}</span> : <span key="none" className="faint">—</span>; });
+                  })()}</td>
+                  <td className="num">{v.partKind === 'hardware' ? '—' : num(v.totalWeight, 2)}</td>
                 </tr>
                 {isOpen ? v.members.map((m) => {
                   const p = store.part(m);
@@ -133,7 +138,7 @@ export function PartsTable({ store }: { store: LabStore }) {
                   return (
                     <tr key={m} className={glue ? (store.glueRole(m) === 'main' ? 'g-main' : store.glueRole(m) === 'attached' ? 'g-att' : '') : s2 ? 'sel' : ''} onClick={(e) => { e.stopPropagation(); if (glue) store.glueAdd([m]); else store.select([m], e.ctrlKey || e.metaKey ? 'toggle' : 'set', false); }} style={{ cursor: 'pointer' }}>
                       <td />
-                      <td colSpan={10} className="small muted" style={{ paddingLeft: 44 }}>
+                      <td colSpan={11} className="small muted" style={{ paddingLeft: 44 }}>
                         {p.id} · {p.name} · {fmtN(p.dims.L) ?? '?'}×{fmtN(p.dims.W) ?? '?'}×{fmtN(p.dims.T) ?? '?'}
                       </td>
                     </tr>
@@ -181,6 +186,7 @@ export function PartsTable({ store }: { store: LabStore }) {
               {th('partKind', t('table.type'))}
               {th('edgeText', t('table.kromka'))}
               {th('group', t('table.group'))}
+              <th>{t('table.pgroup')}</th>
               {th('totalWeight', t('table.weight'), 'num')}
             </tr>
           </thead>
@@ -190,7 +196,7 @@ export function PartsTable({ store }: { store: LabStore }) {
               return (
                 <Fragment key={'g:' + gkey}>
                   <tr className="grp-row" onClick={() => toggleMat(gkey)} style={{ cursor: 'pointer' }} aria-expanded={!closed}>
-                    <td colSpan={11} style={{ fontWeight: 600, background: 'var(--surface-container, #eef3fb)' }}>
+                    <td colSpan={12} style={{ fontWeight: 600, background: 'var(--surface-container, #eef3fb)' }}>
                       <span className="row" style={{ gap: 6 }}>
                         <Icon name={closed ? 'chevronR' : 'chevronD'} size={14} />
                         <span>{gkey || unknown}</span>

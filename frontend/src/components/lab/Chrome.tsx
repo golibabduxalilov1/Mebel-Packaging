@@ -19,6 +19,7 @@ export function ModeBar({ store, title, subtitle, right, left }: { store: LabSto
     { m: 'view', icon: 'eye', key: '1' },
     { m: 'merge', icon: 'merge', key: '2' },
     { m: 'glue', icon: 'glue', key: '3' },
+    { m: 'group', icon: 'box', key: '4' },
   ];
   return (
     <div className="modebar">
@@ -112,6 +113,7 @@ export function ContextMenu({ store }: { store: LabStore }) {
   const selected = useLab(store, (s) => s.selected);
   const mode = useLab(store, (s) => s.mode);
   const hidden = useLab(store, (s) => s.hidden);
+  const doc = useLab(store, (s) => s.doc);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!ctx) return;
@@ -142,6 +144,8 @@ export function ContextMenu({ store }: { store: LabStore }) {
         {item('split', t('merge.split'), () => store.splitSelected(), !ids.length)}
       </> : null}
       {item('glue', t('ctx.glueThis'), () => store.startGlue(), !ids.length || !store.perms.glue)}
+      {(doc.packGroups || []).map((g) => item('box', t('ctx.toGroup', { name: g.name }), () => store.assignSelected(g.id), !ids.length || !store.perms.editParts))}
+      {item('box', t('ctx.newGroup'), () => { store.setMode('group'); store.createGroup(t('group.defaultName', { n: (doc.packGroups || []).length + 1 }), true); }, !ids.length || !store.perms.editParts)}
       {comp && ctx.partId ? item('unlink', t('props.detach'), () => store.detachPart(ctx.partId!), !store.perms.glue) : null}
       {comp ? item('unlink', t('props.dissolve'), () => store.dissolveOf(comp.id), !store.perms.glue) : null}
       <hr />

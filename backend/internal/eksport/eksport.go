@@ -27,6 +27,11 @@ var dict = map[string]map[string]string{
 		"material": "Material", "size": "O'lcham, mm", "layer": "Qatlam", "warnings": "Ogohlantirishlar", "code": "Turi", "reason": "Izoh",
 		"box": "QUTI", "of": "dan", "stale": "Diqqat: laboratoriyada o'zgarish bor, natija eskirgan.", "more": "yana",
 		"unfit": "Qutiga sig'maydi", "unknown_weight": "Og'irligi noma'lum", "unknown_size": "O'lchami noma'lum", "hardware_no_size": "Furnitura o'lchamsiz", "overweight_item": "Limitdan og'ir",
+		"bbox_only": "Geometriyasi yo'q: chegara qutisi ishlatildi", "group": "Guruh", "common": "Umumiy", "len": "Uzunlik", "wid": "Eni", "hei": "Balandlik",
+		"summary": "Kartonlar jamlanmasi", "count": "Soni", "nos": "Karton raqamlari", "step": "Qadam", "pose": "Holati", "flat": "yotqizilgan", "upright": "tik",
+		"inside": "ichida", "instruction": "Karton ko'rsatmasi", "steps": "Joylash tartibi (pastdan yuqoriga)", "top": "Yuqoridan ko'rinish", "side": "Yon tomondan ko'rinish",
+		"layerN": "Qatlam", "artpos": "ArtPos", "ready": "Tayyor", "done": "Joylandi", "issues": "Cheklovlar", "over_weight": "Og'irlik limiti oshgan", "over_size": "Karton maksimal o'lchamdan katta",
+		"outside": "Detal karton tashqarisida", "overlap": "Detallar kesishadi", "unsupported": "Detal tayanchsiz yoki og'ir detal yengil ustida", "pos": "Joyi (x, y, z)",
 	},
 	"ru": {
 		"title": "Отчёт по упаковке", "order": "Заказ", "name": "Название", "client": "Клиент", "date": "Дата", "gabarit": "Габарит", "parts": "Деталей",
@@ -35,6 +40,11 @@ var dict = map[string]map[string]string{
 		"material": "Материал", "size": "Размер, мм", "layer": "Слой", "warnings": "Предупреждения", "code": "Тип", "reason": "Примечание",
 		"box": "КОРОБКА", "of": "из", "stale": "Внимание: в лаборатории есть изменения, результат устарел.", "more": "ещё",
 		"unfit": "Не помещается", "unknown_weight": "Вес неизвестен", "unknown_size": "Размер неизвестен", "hardware_no_size": "Фурнитура без размеров", "overweight_item": "Тяжелее лимита",
+		"bbox_only": "Нет геометрии: использован габаритный бокс", "group": "Группа", "common": "Общая", "len": "Длина", "wid": "Ширина", "hei": "Высота",
+		"summary": "Сводка коробок", "count": "Кол-во", "nos": "Номера коробок", "step": "Шаг", "pose": "Положение", "flat": "плашмя", "upright": "стоя",
+		"inside": "внутри", "instruction": "Инструкция по коробке", "steps": "Порядок укладки (снизу вверх)", "top": "Вид сверху", "side": "Вид сбоку",
+		"layerN": "Слой", "artpos": "ArtPos", "ready": "Готово", "done": "Уложено", "issues": "Ограничения", "over_weight": "Превышен лимит веса", "over_size": "Коробка больше максимального размера",
+		"outside": "Деталь вне коробки", "overlap": "Детали пересекаются", "unsupported": "Деталь без опоры или тяжёлая на лёгкой", "pos": "Позиция (x, y, z)",
 	},
 }
 
@@ -46,6 +56,8 @@ func tr(lang, k string) string {
 	}
 	return dict["uz"][k]
 }
+
+type upItem = upokovka.ItemResult
 
 type data struct {
 	order platform.Order
@@ -77,6 +89,29 @@ func (h Handlers) load(c *fiber.Ctx) (*data, error) {
 }
 
 func dims(l, w, h float64) string { return fmt.Sprintf("%.0f × %.0f × %.0f", l, w, h) }
+
+// groupLabel: karton guruhi nomi (umumiy bo'lsa "Umumiy").
+// poseText: detal qanday qo'yilishi (yotqizilgan yoki tik) va ichiga joylanganmi.
+func (d *data) poseText(it upItem) string {
+	t := tr(d.lang, it.Pose)
+	if it.Pose == "upright" && it.Up != "" {
+		t += " (" + it.Up + ")"
+	}
+	if it.Host != "" {
+		t += ", " + tr(d.lang, "inside")
+	}
+	return t
+}
+
+func (d *data) groupLabel(g, name string) string {
+	if g == "" {
+		return tr(d.lang, "common")
+	}
+	if name != "" {
+		return name
+	}
+	return g
+}
 
 func (d *data) totals() (float64, float64, int) {
 	tw, tf, n := 0.0, 0.0, 0
@@ -145,59 +180,68 @@ func (h Handlers) ReportXLSX(c *fiber.Ctx) error {
 		style(s1, 1, r, 6, r, warn)
 		r += 2
 	}
-	hdr := []string{L("no"), L("outer"), L("inner"), L("weight"), L("limit"), L("fill"), L("items")}
+	hdr := []string{L("no"), L("group"), L("len") + " (" + L("outer") + ")", L("wid"), L("hei"), L("len") + " (" + L("inner") + ")", L("wid"), L("hei"),
+		L("weight"), L("limit"), L("fill"), L("items")}
 	for i, t := range hdr {
 		set(s1, i+1, r, t)
 	}
 	style(s1, 1, r, len(hdr), r, head)
 	for _, b := range d.res.Boxes {
 		r++
-		set(s1, 1, r, b.No)
-		set(s1, 2, r, dims(b.L, b.W, b.H))
-		set(s1, 3, r, dims(b.InnerL, b.InnerW, b.InnerH))
-		set(s1, 4, r, b.Weight)
-		set(s1, 5, r, b.MaxWeight)
-		set(s1, 6, r, int(b.Fill*100+0.5))
-		set(s1, 7, r, len(b.Items))
+		vals := []any{b.No, d.groupLabel(b.Group, b.GroupName), b.L, b.W, b.H, b.InnerL, b.InnerW, b.InnerH, b.Weight, b.MaxWeight, int(b.Fill*100 + 0.5), len(b.Items)}
+		for i, v := range vals {
+			set(s1, i+1, r, v)
+		}
 	}
 	f.SetColWidth(s1, "A", "A", 22)
-	f.SetColWidth(s1, "B", "C", 26)
-	f.SetColWidth(s1, "D", "G", 13)
+	f.SetColWidth(s1, "B", "B", 24)
+	f.SetColWidth(s1, "C", "H", 14)
+	f.SetColWidth(s1, "I", "L", 12)
+	// buyurtma bo'yicha bir xil o'lchamli kartonlar jamlanmasi
+	r += 2
+	set(s1, 1, r, L("summary"))
+	style(s1, 1, r, 1, r, bold)
+	r++
+	for i, t := range []string{L("len") + " (" + L("outer") + ")", L("wid"), L("hei"), L("count"), L("nos")} {
+		set(s1, i+1, r, t)
+	}
+	style(s1, 1, r, 5, r, head)
+	for _, sm := range d.res.Summary {
+		r++
+		nos := make([]string, len(sm.Nos))
+		for i, n := range sm.Nos {
+			nos[i] = fmt.Sprint(n)
+		}
+		for i, v := range []any{sm.L, sm.W, sm.H, sm.Count, strings.Join(nos, ", ")} {
+			set(s1, i+1, r, v)
+		}
+	}
 
 	s2 := L("contents")
 	f.NewSheet(s2)
-	hdr2 := []string{L("no"), L("item"), L("material"), L("size"), L("weight"), L("layer")}
+	hdr2 := []string{L("no"), L("group"), L("step"), L("item"), L("artpos"), L("material"), L("size"), L("pose"), L("weight"), L("layer")}
 	for i, t := range hdr2 {
 		set(s2, i+1, 1, t)
 	}
 	style(s2, 1, 1, len(hdr2), 1, head)
 	r = 1
 	for _, b := range d.res.Boxes {
-		type row struct {
-			name, mat, size string
-			w               float64
-			layer           int
-		}
-		items := make([]row, 0, len(b.Items))
-		for _, it := range b.Items {
-			items = append(items, row{it.Name, it.Material, dims(it.L, it.W, it.H), it.Weight, it.Layer + 1})
-		}
-		sort.SliceStable(items, func(i, j int) bool { return items[i].layer < items[j].layer })
+		items := append([]upItem(nil), b.Items...)
+		sort.SliceStable(items, func(i, j int) bool { return items[i].Step < items[j].Step })
 		for _, it := range items {
 			r++
-			set(s2, 1, r, b.No)
-			set(s2, 2, r, it.name)
-			set(s2, 3, r, it.mat)
-			set(s2, 4, r, it.size)
-			set(s2, 5, r, it.w)
-			set(s2, 6, r, it.layer)
+			for i, v := range []any{b.No, d.groupLabel(b.Group, b.GroupName), it.Step, it.Name, it.ArtPos, it.Material, dims(it.L, it.W, it.H), d.poseText(it), it.Weight, it.Layer + 1} {
+				set(s2, i+1, r, v)
+			}
 		}
 	}
 	f.SetColWidth(s2, "A", "A", 6)
-	f.SetColWidth(s2, "B", "B", 36)
-	f.SetColWidth(s2, "C", "C", 22)
-	f.SetColWidth(s2, "D", "D", 22)
-	f.SetColWidth(s2, "E", "F", 11)
+	f.SetColWidth(s2, "B", "B", 20)
+	f.SetColWidth(s2, "C", "C", 7)
+	f.SetColWidth(s2, "D", "D", 36)
+	f.SetColWidth(s2, "E", "F", 20)
+	f.SetColWidth(s2, "G", "H", 22)
+	f.SetColWidth(s2, "I", "J", 10)
 
 	if len(d.res.Warnings) > 0 || len(d.res.Unplaced) > 0 {
 		s3 := L("warnings")
@@ -295,7 +339,7 @@ func (h Handlers) ReportPDF(c *fiber.Ctx) error {
 	cols := []struct {
 		t string
 		w float64
-	}{{L("no"), 10}, {L("outer"), 44}, {L("inner"), 44}, {L("weight"), 24}, {L("limit"), 22}, {L("fill"), 18}, {L("items"), 20}}
+	}{{L("no"), 9}, {L("group"), 28}, {L("outer"), 38}, {L("inner"), 38}, {L("weight"), 20}, {L("limit"), 16}, {L("fill"), 16}, {L("items"), 17}}
 	header := func() {
 		p.SetFont("dejavu", "B", 8.5)
 		p.SetFillColor(18, 73, 92)
@@ -311,12 +355,26 @@ func (h Handlers) ReportPDF(c *fiber.Ctx) error {
 	for i, b := range d.res.Boxes {
 		fill := i%2 == 1
 		p.SetFillColor(246, 248, 250)
-		vals := []string{fmt.Sprint(b.No), dims(b.L, b.W, b.H), dims(b.InnerL, b.InnerW, b.InnerH), fmt.Sprintf("%.2f", b.Weight), fmt.Sprintf("%.1f", b.MaxWeight),
+		vals := []string{fmt.Sprint(b.No), fit(p, d.groupLabel(b.Group, b.GroupName), 26), dims(b.L, b.W, b.H), dims(b.InnerL, b.InnerW, b.InnerH), fmt.Sprintf("%.2f", b.Weight), fmt.Sprintf("%.1f", b.MaxWeight),
 			fmt.Sprintf("%.0f", b.Fill*100), fmt.Sprint(len(b.Items))}
 		for j, c := range cols {
 			p.CellFormat(c.w, 6, vals[j], "", 0, "L", fill, 0, "")
 		}
 		p.Ln(-1)
+	}
+	// buyurtma bo'yicha bir xil o'lchamli kartonlar jamlanmasi
+	p.Ln(5)
+	p.SetFont("dejavu", "B", 11)
+	p.CellFormat(0, 7, L("summary"), "", 1, "L", false, 0, "")
+	p.SetFont("dejavu", "", 9)
+	for _, sm := range d.res.Summary {
+		nos := make([]string, len(sm.Nos))
+		for i, n := range sm.Nos {
+			nos[i] = fmt.Sprint(n)
+		}
+		p.CellFormat(60, 6, dims(sm.L, sm.W, sm.H)+" mm", "B", 0, "L", false, 0, "")
+		p.CellFormat(24, 6, fmt.Sprintf("× %d", sm.Count), "B", 0, "L", false, 0, "")
+		p.CellFormat(0, 6, fit(p, "№ "+strings.Join(nos, ", "), 96), "B", 1, "L", false, 0, "")
 	}
 	// har bir quti tarkibi
 	for _, b := range d.res.Boxes {
@@ -326,7 +384,7 @@ func (h Handlers) ReportPDF(c *fiber.Ctx) error {
 		}
 		p.SetFont("dejavu", "B", 11)
 		p.SetTextColor(138, 106, 70)
-		p.CellFormat(0, 7, fmt.Sprintf("%s №%d · %s mm · %.2f kg", L("box"), b.No, dims(b.L, b.W, b.H), b.Weight), "", 1, "L", false, 0, "")
+		p.CellFormat(0, 7, fmt.Sprintf("%s №%d · %s · %s mm · %.2f kg", L("box"), b.No, d.groupLabel(b.Group, b.GroupName), dims(b.L, b.W, b.H), b.Weight), "", 1, "L", false, 0, "")
 		p.SetTextColor(16, 29, 38)
 		p.SetFont("dejavu", "", 8.5)
 		for _, it := range b.Items {
@@ -397,12 +455,15 @@ func (h Handlers) LabelsPDF(c *fiber.Ctx) error {
 		p.CellFormat(50, 8, fmt.Sprintf("%.1f kg", b.Weight), "", 0, "L", false, 0, "")
 		p.SetFont("dejavu", "", 9)
 		p.CellFormat(41, 8, dims(b.L, b.W, b.H)+" mm", "", 1, "R", false, 0, "")
+		p.SetX(7)
+		p.SetFont("dejavu", "", 7.5)
+		p.CellFormat(0, 4, fit(p, L("inner")+": "+dims(b.InnerL, b.InnerW, b.InnerH)+" · "+L("group")+": "+d.groupLabel(b.Group, b.GroupName), 91), "", 1, "L", false, 0, "")
 		p.SetDrawColor(201, 164, 121)
 		p.SetLineWidth(0.3)
 		p.SetDashPattern([]float64{1.2, 1}, 0)
-		p.Line(7, 75, 98, 75)
+		p.Line(7, 80, 98, 80)
 		p.SetDashPattern([]float64{}, 0)
-		p.SetXY(7, 78)
+		p.SetXY(7, 83)
 		p.SetFont("dejavu", "B", 8.5)
 		p.CellFormat(0, 5, L("contents"), "", 1, "L", false, 0, "")
 		// bir xil nomlarni guruhlab ko'rsatish
@@ -421,7 +482,7 @@ func (h Handlers) LabelsPDF(c *fiber.Ctx) error {
 			list = append(list, agg{it.Name, 1})
 		}
 		p.SetFont("dejavu", "", 8)
-		maxLines := 11
+		maxLines := 10
 		for i, a := range list {
 			if i == maxLines-1 && len(list) > maxLines {
 				p.SetX(7)

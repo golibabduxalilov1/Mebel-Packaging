@@ -25,7 +25,27 @@
       "Bash(node --experimental-strip-types tests/glue.ts)",
       "Bash(npx tsx *)",
       "Bash(git -C .. status)",
-      "Bash(node frontend/scripts/check-i18n.mjs)"
+      "Bash(node frontend/scripts/check-i18n.mjs)",
+      "Bash(sed -i '153,158s/size={16}/size={20}/g' app/orders/page.tsx)",
+      "Bash(sed -i '128s/width: 24px/width: 30px; height: 30px/' app/globals.css)",
+      "Read(//home/mrmoon/Downloads/Desktop/**)",
+      "Bash(go version *)",
+      "Bash(gofmt -w internal)",
+      "Bash(go vet *)",
+      "Bash(go test *)",
+      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/backend/internal/upokovka && sed -n 116,135p algorithm.go; sed -n 253,260p algorithm.go; grep -n \"RefKind\" *.go | grep -v _test; grep -n \"refKind\" ../platform/*.go)",
+      "Bash(PACK_ITEMS_OUT=/tmp/claude-1000/-home-mrmoon-Downloads-bazis-upokovka/dd812d13-d4a2-4d86-a654-cf6aee5e96e7/scratchpad/items.json npx tsx pack.ts)",
+      "Bash(sed -i \"s|ok\\(c.closed\\\\[0\\\\] \\\\&\\\\& c.closed\\\\[1\\\\]|console.log\\(JSON.stringify\\(c\\)\\); ok\\(c.closed[0] \\\\&\\\\& c.closed[1]|\" pack.ts)",
+      "Bash(PACK_ITEMS=/tmp/claude-1000/-home-mrmoon-Downloads-bazis-upokovka/dd812d13-d4a2-4d86-a654-cf6aee5e96e7/scratchpad/items.json go test ./internal/upokovka -run Colada -v)",
+      "Bash(node scripts/check-i18n.mjs)",
+      "Bash(which postgres *)",
+      "Read(//usr/lib/postgresql/**)",
+      "Bash(python3 e2e.py)",
+      "Bash(pdftoppm -r 60 -png instruction.pdf instr)",
+      "Bash(pdftoppm -r 60 -png -f 1 -l 1 labels.pdf lab)",
+      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka && grep -rl \"entityCavities\\\\|OperatorLeft\" --include=* . ~/.config/Code/User/History ~/.config/Code/User/workspaceStorage 2>/dev/null | grep -v \"^./frontend/src\" | head; ls -a frontend | head -30)",
+      "Read(//home/mrmoon/.config/Code/User/History/**)",
+      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/frontend && grep -n \"cavit\\\\|Cavit\" -ri tests ../backend --include=* -l | head; echo ---; grep -n \"'op\\\\.[a-zA-Z.]*'\" -o -r src | sort -u | head -50; echo ---; grep -n \"^  *'op\\\\.\\\\|op\\\\.[a-z]*:\" src/lib/i18n/ru.ts | head -50; echo ---; grep -n \"mark\\\\|Mark\\\\|instruction\\\\|print\" src/lib/api.ts | head -20; echo; grep -n \"operator\\\\|\\\\.op-\\\\|op-\" src/app/globals.css | head -50)"
     ]
   }
 }

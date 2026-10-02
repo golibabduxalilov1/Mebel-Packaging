@@ -106,11 +106,14 @@ func main() {
 	p.Post("/orders/:id/pack/run", need("P5"), packH.Run)
 	p.Post("/orders/:id/pack/move", need("P7"), packH.Move)
 	p.Put("/orders/:id/pack/box/:no", need("P7"), packH.BoxLimit)
+	p.Put("/orders/:id/pack/item/done", need("P11", "P7"), packH.MarkItem)
+	p.Put("/orders/:id/pack/box/:no/ready", need("P11", "P7"), packH.MarkReady)
 
 	// F28, F29: eksport
 	p.Get("/orders/:id/export/report.xlsx", need("P8"), expH.ReportXLSX)
 	p.Get("/orders/:id/export/report.pdf", need("P8"), expH.ReportPDF)
 	p.Get("/orders/:id/export/labels.pdf", need("P8"), expH.LabelsPDF)
+	p.Get("/orders/:id/export/box/:no/instruction.pdf", need("P8"), expH.InstructionPDF)
 
 	// frontend
 	app.Use(web.Handler(cfg.StaticDir))

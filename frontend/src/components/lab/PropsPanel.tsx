@@ -96,7 +96,8 @@ export function PropsPanel({ store }: { store: LabStore }) {
   const effs = ps.map((p) => eff(p, doc.edits[p.id]));
   const same = <K extends 'name' | 'L' | 'W' | 'T' | 'material' | 'kind' | 'weightManual'>(k: K) => effs.every((e) => e[k] === effs[0][k]) ? effs[0][k] : null;
   const anyEdited = ps.some((p) => doc.edits[p.id]);
-  const weights = ps.map((p, i) => partWeight(p, effs[i], mats));
+  const allHw = effs.every((e) => e.kind === 'hardware');
+  const weights = ps.map((p, i) => effs[i].kind === 'hardware' ? 0 : partWeight(p, effs[i], mats));
   const totalW = weights.some((w) => w == null) ? null : weights.reduce<number>((s, w) => s + (w || 0), 0);
   const single = ps.length === 1 ? ps[0] : null;
   const e0 = effs[0];
@@ -142,13 +143,13 @@ export function PropsPanel({ store }: { store: LabStore }) {
         {e0 && e0.material && !matKnown(e0.material) && same('material') != null ? (
           <div className="alert warn small" style={{ marginTop: 10 }}><Icon name="warn" size={16} />{t('props.matUnknown')}</div>
         ) : null}
-        <div className="grid2" style={{ marginTop: 10, alignItems: 'end' }}>
+        {allHw ? null : <div className="grid2" style={{ marginTop: 10, alignItems: 'end' }}>
           <NumField label={t('props.weightManual')} suffix="kg" value={same('weightManual') as number | null} orig={null} edited={edited('weight')} disabled={!canEdit} step={0.01}
             onCommit={(v) => commit({ weight: v === null ? undefined : v })} />
           <div className="field"><span>{single ? t('props.weight') : t('props.weightSum')}</span>
             <b className={'mono' + (totalW == null ? ' unknown' : '')} style={{ height: 30, display: 'flex', alignItems: 'center' }}>{totalW == null ? unknown : fmtN(totalW, 3) + ' kg'}</b>
           </div>
-        </div>
+        </div>}
         <button className="btn sm block" style={{ marginTop: 12 }} disabled={!anyEdited || !canEdit} onClick={() => store.resetSelected()}><Icon name="refresh" size={15} />{t('props.restore')}</button>
       </div>
       {single ? (

@@ -19,6 +19,10 @@ export interface PackView {
   explode: number; // 0..1 qatlamlarni ajratish
   top: boolean; // yuqoridan 2D
   selected: string | null;
+  /** Operator ko'rinishi: shu qadamgacha bo'lgan detallar ko'rsatiladi (null = hammasi). */
+  stepMax: number | null;
+  /** "Joylandi" deb belgilangan detallar (yashil tus). */
+  done: Set<string>;
 }
 
 const KRAFT = 0xc9a479, KRAFT_DARK = 0x8a6a46;
@@ -44,7 +48,7 @@ export class PackEngine {
   private boxes: PackBox[] = [];
   private boxGroups = new Map<number, { g: THREE.Group; lid: THREE.Object3D; origin: THREE.Vector3; box: PackBox; label: HTMLDivElement }>();
   private items: ItemObj[] = [];
-  private view: PackView = { boxNo: null, lid: false, layer: null, explode: 0, top: false, selected: null };
+  private view: PackView = { boxNo: null, lid: false, layer: null, explode: 0, top: false, selected: null, stepMax: null, done: new Set() };
   private overlay: HTMLDivElement;
   private ray = new THREE.Raycaster();
   private ndc = new THREE.Vector2();
@@ -173,6 +177,17 @@ export class PackEngine {
         mesh.userData.uid = it.uid;
         const e = new THREE.LineSegments(new THREE.EdgesGeometry(geo), new THREE.LineBasicMaterial({ color: 0x4a4036, transparent: true, opacity: 0.55 }));
         mesh.add(e);
+        // o'yiqli (ichi bo'sh) detal: ichidagi detallar ko'rinishi uchun shaffof, o'yiq chegarasi yashil chiziq bilan
+        const hasNested = b.items.some((x) => x.host === it.uid);
+        if (hasNested) { mat.transparent = true; mat.opacity = 0.3; mat.depthWrite = false; }
+        for (const cv of it.cavities || []) {
+          const cg = new THREE.BoxGeometry(cv.l, cv.h, cv.w);
+          const cl = new THREE.LineSegments(new THREE.EdgesGeometry(cg), new THREE.LineBasicMaterial({ color: 0x2f9e6b, transparent: true, opacity: 0.8 }));
+          cg.dispose();
+          cl.position.set(cv.x + cv.l / 2 - base.x, cv.z + cv.h / 2 - base.y, cv.y + cv.w / 2 - base.z);
+          cl.raycast = () => undefined;
+          mesh.add(cl);
+        }
         g.add(mesh);
         this.items.push({ item: it, box: b.no, mesh, edges: e, base });
       }
@@ -209,13 +224,14 @@ export class PackEngine {
     });
     for (const o of this.items) {
       const lay = o.item.layer;
-      o.mesh.visible = v.layer == null || lay <= v.layer;
+      o.mesh.visible = (v.layer == null || lay <= v.layer) && (v.stepMax == null || o.item.step <= v.stepMax);
       const lift = v.explode * lay * Math.max(80, (layerH.get(lay) || 20) * 4);
       o.mesh.position.set(o.base.x, o.base.y + lift, o.base.z);
       const sel = v.selected === o.item.uid;
       const m = o.mesh.material as THREE.MeshStandardMaterial;
-      m.emissive.set(sel ? 0xe39a00 : 0x000000);
-      m.emissiveIntensity = sel ? 0.45 : 0;
+      const done = v.done.has(o.item.uid);
+      m.emissive.set(sel ? 0xe39a00 : done ? 0x1f9d55 : 0x000000);
+      m.emissiveIntensity = sel ? 0.55 : done ? 0.22 : 0;
       (o.edges.material as THREE.LineBasicMaterial).color.set(sel ? 0xb36b00 : 0x4a4036);
       (o.edges.material as THREE.LineBasicMaterial).opacity = sel ? 1 : 0.55;
     }
