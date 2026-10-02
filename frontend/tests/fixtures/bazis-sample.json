@@ -1,0 +1,136 @@
+{
+ "schemaVersion": 1,
+ "scriptVersion": "1.0.0",
+ "bazisApiVersion": 11,
+ "model": "test",
+ "unit": "mm",
+ "date": "2026-10-02T11:50:41",
+ "parts": [
+  {
+   "id": "b1",
+   "name": "Bok",
+   "artPos": "1",
+   "designation": null,
+   "material": "ЛДСП 16",
+   "length": 2067,
+   "width": 503,
+   "thickness": 16,
+   "type": "panel",
+   "product": "Shkaf",
+   "butts": [
+    {
+     "material": null,
+     "thickness": 2,
+     "sign": "ABS 2"
+    }
+   ],
+   "bent": false,
+   "hidden": false,
+   "pos": {
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     16,
+     2067,
+     503
+    ]
+   }
+  },
+  {
+   "id": "b2",
+   "name": "Polka",
+   "artPos": "1",
+   "designation": null,
+   "material": "ЛДСП 16",
+   "length": 768,
+   "width": 480,
+   "thickness": 16,
+   "type": "panel",
+   "product": "Shkaf",
+   "butts": [
+    {
+     "material": null,
+     "thickness": 2,
+     "sign": "ABS 2"
+    }
+   ],
+   "bent": false,
+   "hidden": false,
+   "pos": {
+    "min": [
+     16,
+     300,
+     0
+    ],
+    "max": [
+     784,
+     316,
+     480
+    ]
+   }
+  },
+  {
+   "id": "b3",
+   "name": "Egilgan",
+   "artPos": "1",
+   "designation": null,
+   "material": "ХДФ 3",
+   "length": 900,
+   "width": 400,
+   "thickness": 4,
+   "type": "panel",
+   "product": "Shkaf",
+   "butts": [
+    {
+     "material": null,
+     "thickness": 2,
+     "sign": "ABS 2"
+    }
+   ],
+   "bent": true,
+   "hidden": false,
+   "pos": {
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     600,
+     400,
+     300
+    ]
+   }
+  },
+  {
+   "id": "b4",
+   "name": "Саморез 3х19",
+   "artPos": null,
+   "designation": null,
+   "material": null,
+   "length": 19,
+   "width": 3,
+   "thickness": 3,
+   "type": "hardware",
+   "product": null,
+   "butts": null,
+   "bent": false,
+   "hidden": false,
+   "pos": {
+    "min": [
+     0,
+     0,
+     0
+    ],
+    "max": [
+     3,
+     19,
+     3
+    ]
+   }
+  }
+ ]
+}

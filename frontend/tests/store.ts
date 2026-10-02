@@ -1,0 +1,76 @@
+import fs from 'fs';
+import { importFile } from '../src/lib/import/importFile.ts';
+import { LabStore, glueBlocker, glueStepOf, normalizeDoc } from '../src/lib/lab/store.ts';
+import { partMatrices } from '../src/lib/model/labdoc.ts';
+const ok = (c: boolean, m: string) => { console.log((c ? 'OK  ' : 'FAIL') + ' ' + m); if (!c) process.exitCode = 1; };
+(async () => {
+  const b = fs.readFileSync(new URL('./fixtures/test.dae', import.meta.url));
+  const r: any = await importFile({ fileName: 'test.dae', bytes: b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength), options: { unit: 'auto', upAxis: 'auto', daeLevel: 'top' } });
+  const parts = r.result.parts;
+  const mats = [{ name: 'ДСП бук 16', density: 700, sheetL: null, sheetW: null, sheetWeight: null, method: 'density' as const }];
+  const saved: any[] = [];
+  const s = new LabStore();
+  s.load(r.result, null, null, mats, { saver: async (p) => { saved.push(p); } });
+  const st = () => s.get();
+  console.log('parts', parts.map((p: any) => p.id + ':' + p.name).join(', '));
+  const rows0 = st().doc.rows.length;
+  ok(rows0 > 0 && st().views.length === rows0, `avto qatorlar: ${rows0}`);
+  // tahrirlash + undo/redo
+  s.select([parts[0].id], 'set');
+  s.editSelected({ name: 'Yangi nom', weight: 3.5 });
+  ok(st().doc.edits[parts[0].id]?.name === 'Yangi nom', 'F13 nom o\'zgardi');
+  ok(st().canUndo, 'undo mavjud');
+  s.undo();
+  ok(!st().doc.edits[parts[0].id], 'undo tahrirni qaytardi');
+  s.redo();
+  ok(st().doc.edits[parts[0].id]?.weight === 3.5, 'redo qayta qo\'lladi');
+  s.resetSelected();
+  ok(!st().doc.edits[parts[0].id], 'asl qiymat tiklandi');
+  // qo'lda birlashtirish / ajratish
+  s.setMode('merge');
+  const r1 = st().doc.rows[0], r2 = st().doc.rows[1];
+  s.select([...r1.members, ...r2.members], 'set', false);
+  s.mergeSelected();
+  ok(st().doc.rows.length === rows0 - 1 && st().doc.rows.some((x) => x.manual && x.members.length === r1.members.length + r2.members.length), 'F15 birlashtirildi');
+  s.splitSelected();
+  ok(st().doc.rows.length >= rows0 - 1 + 1, 'F15 ajratildi');
+  s.autoMerge();
+  ok(st().doc.rows.length === rows0, 'avto birlashtirish qayta tiklandi');
+  // yelimlash (3 qadam): asosiy -> yelimlanadiganlar -> "Yelimla"; detallar joyida qoladi
+  const pick = (id: string, ctrl = false) => s.onPick({ partId: id, point: null as any, faceIndex: 0 }, { ctrlKey: ctrl, metaKey: false, shiftKey: false, clientX: 0, clientY: 0 });
+  s.clearSelection();
+  s.setMode('glue');
+  ok(glueStepOf(st().glue!) === 1 && glueBlocker(st().glue) === 'glue.why.noMain', '1-qadam, tugma o\'chiq (asosiy yo\'q)');
+  s.glueConfirm();
+  ok(st().doc.composites.length === 0, 'asosiy tanlanmasa yelimlanmaydi');
+  pick(parts[0].id);
+  ok(st().glue?.main === parts[0].id && glueStepOf(st().glue!) === 2 && glueBlocker(st().glue) === 'glue.why.noAttached', '2-qadam, tugma o\'chiq (yelimlanadigan yo\'q)');
+  s.glueConfirm();
+  ok(st().doc.composites.length === 0, 'yelimlanadigan tanlanmasa yelimlanmaydi');
+  pick(parts[0].id);
+  ok(st().glue!.attached.length === 0, 'asosiy detal yelimlanadiganlar ro\'yxatiga kirmaydi');
+  pick(parts[2].id);
+  ok(glueStepOf(st().glue!) === 3 && glueBlocker(st().glue) === null, '3-qadam, tugma yoniq');
+  const matsBefore = JSON.stringify(partMatrices(st().doc));
+  s.glueConfirm();
+  ok(JSON.stringify(partMatrices(st().doc)) === matsBefore, 'yelimlashdan keyin matritsalar o\'zgarmagan');
+  const comp = st().doc.composites[0];
+  ok(!!comp && comp.members.length === 2 && comp.mainId === parts[0].id && comp.name === parts[0].name, 'kompozit yaratildi, nomi asosiy detaldan');
+  ok(st().views.some((v) => v.kind === 'composite'), 'jadvalda kompozit qatori');
+  ok(!st().doc.rows.some((x) => x.members.includes(parts[2].id)), 'kompozit a\'zosi qatordan chiqdi');
+  s.detachPart(parts[2].id);
+  ok(st().doc.composites.length === 0 && st().doc.rows.some((x) => x.members.includes(parts[2].id)), 'F20 ajratish: 2 a\'zoli kompozit tarqatildi');
+  s.undo();
+  ok(st().doc.composites.length === 1, 'undo kompozitni qaytardi');
+  // saqlash
+  await s.saveNow();
+  const last = saved[saved.length - 1];
+  console.log('summary', last.summary.length, last.summary.map((x: any) => x.id).join());
+  ok(!!last && last.items.length > 0 && typeof last.signature === 'string' && last.summary.length === parts.length, `saqlash: ${last?.items.length} element, imzo ${last?.signature}`);
+  ok(last.items.some((i: any) => i.refKind === 'composite'), 'kompozit upokovka elementi sifatida yuborildi');
+  // normalizeDoc: yo'q detal olib tashlanadi, yangi detal qo'shiladi
+  const nd = normalizeDoc(parts.slice(1), { ...st().doc, rows: [...st().doc.rows, { id: 'x', members: ['ghost'], manual: true }] });
+  ok(!nd.rows.some((x) => x.members.includes('ghost')) && !nd.composites.some((c) => c.members.some((m) => m.partId === parts[0].id)), 'normalizeDoc: eskirgan id lar tozalandi');
+  const all = new Set([...nd.rows.flatMap((x) => x.members), ...nd.composites.flatMap((c) => c.members.map((m) => m.partId))]);
+  ok(parts.slice(1).every((p: any) => all.has(p.id)), 'normalizeDoc: har bir detal joyida');
+})();
