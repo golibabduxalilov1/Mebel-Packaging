@@ -120,7 +120,7 @@ export class LabStore {
     this.past = []; this.future = [];
     this.set({
       ready: true, result, parts: result.parts, doc: d, materials, views: rowViews(result.parts, d, materialMap(materials)),
-      mode: scene?.mode || 'view', hidden, selected: new Set(), glue: null, canUndo: false, canRedo: false, save: 'idle', readOnly: !!opts.readOnly,
+      mode: scene?.mode === 'merge' || scene?.mode === 'glue' ? scene.mode : 'view', hidden, selected: new Set(), glue: null, canUndo: false, canRedo: false, save: 'idle', readOnly: !!opts.readOnly,
     });
     if (this.engine) this.bootEngine(scene);
     else this.pendingScene = scene;

@@ -7,6 +7,7 @@ import { AdminTabs } from '@/components/admin/AdminTabs';
 import { api, type Role, type User } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { fmtPhone, isPhone } from '@/lib/phone';
 
 interface Form { id?: number; login: string; fullName: string; password: string; roleId: number; lang: 'uz' | 'ru'; active: boolean }
 
@@ -16,11 +17,11 @@ function UserForm({ f0, roles, onClose, onSaved }: { f0: Form; roles: Role[]; on
   const [f, setF] = useState<Form>(f0);
   const [busy, setBusy] = useState(false);
   const save = async () => {
-    if (!f.login.trim() || (!f.id && f.password.length < 6) || (f.password && f.password.length < 6)) { push(t('users.invalid'), 'warn'); return; }
+    if (!isPhone(f.login) || (!f.id && f.password.length < 6) || (f.password && f.password.length < 6)) { push(t('users.invalid'), 'warn'); return; }
     setBusy(true);
     try {
-      if (f.id) await api.updateUser(f.id, { fullName: f.fullName, roleId: f.roleId, lang: f.lang, active: f.active, ...(f.password ? { password: f.password } : {}) });
-      else await api.createUser({ login: f.login.trim(), fullName: f.fullName, password: f.password, roleId: f.roleId, lang: f.lang, active: f.active });
+      if (f.id) await api.updateUser(f.id, { login: f.login, fullName: f.fullName, roleId: f.roleId, lang: f.lang, active: f.active, ...(f.password ? { password: f.password } : {}) });
+      else await api.createUser({ login: f.login, fullName: f.fullName, password: f.password, roleId: f.roleId, lang: f.lang, active: f.active });
       onSaved();
     } catch (e) { push(e instanceof Error ? e.message : String(e), 'error'); } finally { setBusy(false); }
   };
@@ -31,7 +32,7 @@ function UserForm({ f0, roles, onClose, onSaved }: { f0: Form; roles: Role[]; on
     </>}>
       <div className="col" style={{ gap: 12 }}>
         <div className="grid2">
-          <label className="field"><span>{t('login.login')}</span><input className="input" value={f.login} disabled={!!f.id} autoComplete="off" onChange={(e) => setF({ ...f, login: e.target.value })} /></label>
+          <label className="field"><span>{t('login.login')}</span><input className="input" type="tel" inputMode="tel" placeholder="+998 XX XXX XX XX" value={f.login} autoComplete="off" onChange={(e) => setF({ ...f, login: fmtPhone(e.target.value) })} /></label>
           <label className="field"><span>{t('users.fullName')}</span><input className="input" value={f.fullName} onChange={(e) => setF({ ...f, fullName: e.target.value })} /></label>
         </div>
         <label className="field"><span>{f.id ? t('users.newPassword') : t('login.password')}</span>
@@ -84,13 +85,13 @@ function Inner() {
             <tbody>
               {(users || []).map((u) => (
                 <tr key={u.id}>
-                  <td className="mono"><b>{u.login}</b></td>
+                  <td className="mono"><b>{fmtPhone(u.login)}</b></td>
                   <td>{u.fullName}</td>
                   <td><span className="badge info">{u.roleName}</span></td>
                   <td>{u.lang.toUpperCase()}</td>
                   <td>{u.active ? <span className="badge ok">{t('users.activeS')}</span> : <span className="badge err">{t('users.blocked')}</span>}</td>
                   <td className="nowrap" style={{ textAlign: 'right' }}>
-                    <button className="btn xs icon-btn" onClick={() => setForm({ id: u.id, login: u.login, fullName: u.fullName, password: '', roleId: u.roleId, lang: u.lang, active: u.active })} aria-label={t('common.edit')}><Icon name="edit" size={14} /></button>{' '}
+                    <button className="btn xs icon-btn" onClick={() => setForm({ id: u.id, login: fmtPhone(u.login), fullName: u.fullName, password: '', roleId: u.roleId, lang: u.lang, active: u.active })} aria-label={t('common.edit')}><Icon name="edit" size={14} /></button>{' '}
                     <button className="btn xs icon-btn danger" disabled={u.id === user?.id} onClick={() => setDel(u)} aria-label={t('common.delete')}><Icon name="trash" size={14} /></button>
                   </td>
                 </tr>

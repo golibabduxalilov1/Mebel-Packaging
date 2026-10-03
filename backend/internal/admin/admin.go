@@ -66,10 +66,11 @@ func (h Handlers) CreateUser(c *fiber.Ctx) error {
 	if err := c.BodyParser(&in); err != nil {
 		return platform.Fail(c, 400, "noto'g'ri so'rov")
 	}
-	in.Login = strings.TrimSpace(in.Login)
-	if in.Login == "" || len(in.Password) < 6 {
-		return platform.Fail(c, 400, "login majburiy, parol kamida 6 belgi", "invalid")
+	phone, ok := platform.NormalizePhone(in.Login)
+	if !ok || len(in.Password) < 6 {
+		return platform.Fail(c, 400, "telefon raqam (+998 XX XXX XX XX) majburiy, parol kamida 6 belgi", "invalid")
 	}
+	in.Login = phone
 	if err := h.DB.First(&platform.Role{}, in.RoleID).Error; err != nil {
 		return platform.Fail(c, 400, "rol topilmadi", "bad_role")
 	}
@@ -109,6 +110,20 @@ func (h Handlers) UpdateUser(c *fiber.Ctx) error {
 		return platform.DBFail(c, err)
 	}
 	upd := map[string]any{"full_name": strings.TrimSpace(in.FullName)}
+	if strings.TrimSpace(in.Login) != "" {
+		phone, ok := platform.NormalizePhone(in.Login)
+		if !ok {
+			return platform.Fail(c, 400, "telefon raqam +998 XX XXX XX XX ko'rinishida bo'lishi kerak", "bad_phone")
+		}
+		if phone != u.Login {
+			var n int64
+			h.DB.Model(&platform.User{}).Where("login = ? AND id <> ?", phone, id).Count(&n)
+			if n > 0 {
+				return platform.Fail(c, 409, "bu raqam boshqa foydalanuvchiga bog'langan", "exists")
+			}
+			upd["login"] = phone
+		}
+	}
 	if in.RoleID != 0 {
 		if err := h.DB.First(&platform.Role{}, in.RoleID).Error; err != nil {
 			return platform.Fail(c, 400, "rol topilmadi", "bad_role")

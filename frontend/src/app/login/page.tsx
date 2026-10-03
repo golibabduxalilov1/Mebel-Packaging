@@ -5,6 +5,7 @@ import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { ApiError } from '@/lib/api';
 import { BrandMark, Icon } from '@/components/ui/Icon';
+import { fmtPhone } from '@/lib/phone';
 import { LangSwitch } from '@/components/ui/AppShell';
 
 function LoginForm() {
@@ -57,7 +58,7 @@ function LoginForm() {
           </div>
           <div className="col" style={{ gap: 12 }}>
             <label className="field"><span>{t('login.login')}</span>
-              <input className="input" autoComplete="username" value={l} onChange={(e) => setL(e.target.value)} required autoFocus />
+              <input className="input" autoComplete="username" type="tel" inputMode="tel" placeholder="+998 XX XXX XX XX" value={l} onChange={(e) => setL(fmtPhone(e.target.value))} required autoFocus />
             </label>
             <label className="field"><span>{t('login.password')}</span>
               <div style={{ position: 'relative' }}>

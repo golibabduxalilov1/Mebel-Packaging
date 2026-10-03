@@ -41,13 +41,13 @@ func checkResult(t *testing.T, r Result, s Settings, wantUnits int) {
 			seen[a.UID] = true
 			sum += a.Weight
 			if a.X < s.Padding-eps || a.Y < s.Padding-eps || a.Z < s.Padding-eps ||
-				a.X+a.PL > b.InnerL-s.Padding+eps || a.Y+a.PW > b.InnerW-s.Padding+eps || a.Z+a.H > b.InnerH-s.Padding+eps {
+				a.X+a.PL > b.InnerL-s.Padding+eps || a.Y+a.PW > b.InnerW-s.Padding+eps || a.Z+a.PH > b.InnerH-s.Padding+eps {
 				t.Fatalf("quti %d: %s quti tashqarisida", b.No, a.UID)
 			}
 			for _, c := range b.Items[i+1:] {
 				ox := min(a.X+a.PL, c.X+c.PL) - max(a.X, c.X)
 				oy := min(a.Y+a.PW, c.Y+c.PW) - max(a.Y, c.Y)
-				oz := min(a.Z+a.H, c.Z+c.H) - max(a.Z, c.Z)
+				oz := min(a.Z+a.PH, c.Z+c.PH) - max(a.Z, c.Z)
 				if ox > eps && oy > eps && oz > eps {
 					t.Fatalf("quti %d: %s va %s kesishadi", b.No, a.UID, c.UID)
 				}
@@ -233,5 +233,36 @@ func TestRandomProperties(t *testing.T) {
 			t.Fatalf("kutilmagan ogohlantirish: %+v", r.Warnings)
 		}
 		checkResult(t, r, s, units)
+	}
+}
+
+func TestGroupsSeparate(t *testing.T) {
+	s := baseSettings(30)
+	lim := 5.0
+	s.Groups = map[string]GroupSettings{"g1": {MaxWeight: &lim}}
+	a, b := item("a", 500, 400, 16, 2, 2), item("b", 500, 400, 16, 2, 2)
+	b.Group, b.GroupName = "g1", "Guruh 1"
+	r := Pack([]ItemIn{a, b}, s)
+	if len(r.Boxes) != 3 { // umumiy: 1 quti; g1: limit 5 kg => 2 kg × 2 = 4 kg bitta quti... 2 detal 4 kg
+		// g1 da 2 ta 2 kg = 4 kg <= 5 kg: bitta quti; jami 2
+		if len(r.Boxes) != 2 {
+			t.Fatalf("2 quti kutilgan, %d", len(r.Boxes))
+		}
+	}
+	for _, bx := range r.Boxes {
+		for _, it := range bx.Items {
+			if it.Group != bx.Group {
+				t.Fatalf("guruhlar aralashdi: quti %d", bx.No)
+			}
+		}
+		if len(Check(bx, s)) > 0 {
+			t.Fatalf("quti %d: kutilmagan cheklov %v", bx.No, Check(bx, s))
+		}
+	}
+	if r.Boxes[1].Group != "g1" || r.Boxes[1].MaxWeight != 5 {
+		t.Fatalf("guruh limiti qo'llanmadi: %+v", r.Boxes[1].MaxWeight)
+	}
+	if _, err := Move(r.Boxes, r.Boxes[1].Items[0].UID, 1, s); err != ErrGroupMix {
+		t.Fatalf("guruhlar aralashishi rad etilishi kerak, olindi %v", err)
 	}
 }

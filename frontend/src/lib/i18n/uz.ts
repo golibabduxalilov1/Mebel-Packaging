@@ -10,7 +10,7 @@ export const uz = {
   'perm.P1': 'Fayl import qilish', 'perm.P2': 'Detallarni tahrirlash', 'perm.P3': 'Birlashtirish', 'perm.P4': 'Yelimlash', 'perm.P5': 'Upokovkani ishga tushirish',
   'perm.P6': 'Karton sozlamalari', 'perm.P7': 'Natijani tahrirlash', 'perm.P8': 'Eksport (hisobot, yorliq)', 'perm.P9': "Tarixni ko'rish", 'perm.P10': 'Foydalanuvchi va rollar',
 
-  'login.title': 'Tizimga kirish', 'login.login': 'Login', 'login.password': 'Parol', 'login.submit': 'Kirish', 'login.showPwd': "Parolni ko'rsatish",
+  'login.title': 'Tizimga kirish', 'login.login': 'Telefon raqam', 'login.password': 'Parol', 'login.submit': 'Kirish', 'login.showPwd': "Parolni ko'rsatish",
   'login.bad': "Login yoki parol noto'g'ri", 'login.blocked': 'Foydalanuvchi bloklangan', 'login.note': 'Login va parolni administrator beradi.',
   'login.hero': 'Bazis modelidan tayyor qutigacha', 'login.heroText': "Faylni import qiling, detallarni birlashtiring va yelimlang, keyin tizim qutilarni og'irlik limiti bo'yicha hisoblaydi.",
 
@@ -144,7 +144,7 @@ export const uz = {
   // --- alohida upokovka guruhlari, operator ko'rinishi (TZ 3.4, F21-F27) ---
   'mode.group': 'Alohida upokovka', 'table.pgroup': 'Alohida', 'group.title': 'Guruh',
   'group.noPerm': "Guruhlarni tahrirlashga ruxsat yo'q (P2)",
-  'group.hint': "Detallarni sahnada bosib (Ctrl bilan bir nechta, Shift+sudrash bilan ramka) yoki jadvaldan tanlang, so'ng guruhga qo'shing. Guruh detallari boshqa detallar bilan bir kartonga aralashmaydi.",
+  'group.hint': "Detallarni jadvaldan tanlang (Ctrl bilan bir nechta), so'ng guruhga qo'shing. Guruh detallari boshqa detallar bilan bir kartonga aralashmaydi.",
   'group.selected': 'Tanlangan: {n}', 'group.remove': 'Guruhdan chiqarish', 'group.namePh': 'Guruh nomi (masalan, Oynali detallar)',
   'group.create': 'Guruh yaratish', 'group.createWith': "Yaratish va qo'shish", 'group.defaultName': 'Guruh {n}',
   'group.compositeNote': "Yelimlangan kompozit butun holda o'tadi: uning bir qismini guruhga tanlab bo'lmaydi.",

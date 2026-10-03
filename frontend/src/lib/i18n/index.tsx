@@ -22,11 +22,14 @@ const I18nCtx = createContext<Ctx>({ lang: 'uz', setLang: () => undefined, t: tr
 
 export function I18nProvider({ children }: { children: ReactNode }) {
   const [lang, setLangState] = useState<Lang>('uz');
+  // Saqlangan til qo'llanmaguncha bolalar chizilmaydi: aks holda Suspense ichidagi qismlar server HTML (uz) bilan mos kelmay qoladi (hydration xatosi).
+  const [ready, setReady] = useState(false);
   useEffect(() => {
     try {
       const saved = localStorage.getItem('bu_lang');
-      if (saved === 'uz' || saved === 'ru') { current = saved; setLangState(saved); }
+      if (saved === 'uz' || saved === 'ru') { current = saved; setLangState(saved); document.documentElement.lang = saved === 'uz' ? 'uz-Latn' : 'ru'; }
     } catch { /* bo'sh */ }
+    setReady(true);
   }, []);
   const setLang = useCallback((l: Lang) => {
     current = l;
@@ -36,7 +39,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
   // t har til almashganda yangi funksiya bo'lishi kerak, aks holda memo komponentlar yangilanmaydi
   const t = useCallback((key: DictKey | string, params?: Record<string, string | number>) => tr(key, params), [lang]); // eslint-disable-line react-hooks/exhaustive-deps
-  return <I18nCtx.Provider value={{ lang, setLang, t }}>{children}</I18nCtx.Provider>;
+  return <I18nCtx.Provider value={{ lang, setLang, t }}>{ready ? children : null}</I18nCtx.Provider>;
 }
 
 export const useI18n = () => useContext(I18nCtx);

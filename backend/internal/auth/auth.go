@@ -51,6 +51,9 @@ func (h Handlers) Login(c *fiber.Ctx) error {
 		return platform.Fail(c, 400, "noto'g'ri so'rov", "bad_request")
 	}
 	login := strings.TrimSpace(in.Login)
+	if ph, ok := platform.NormalizePhone(login); ok {
+		login = ph
+	}
 	if tooMany(login) {
 		return platform.Fail(c, 429, "juda ko'p urinish, 10 daqiqadan keyin qayta urining", "rate_limited")
 	}

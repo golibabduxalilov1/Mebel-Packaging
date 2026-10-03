@@ -6,6 +6,7 @@ import { Icon } from '@/components/ui/Icon';
 import { api } from '@/lib/api';
 import { useAuth } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
+import { fmtPhone } from '@/lib/phone';
 
 function Inner() {
   const { t } = useI18n();
@@ -27,7 +28,7 @@ function Inner() {
   if (!user) return null;
   return (
     <div className="page" style={{ maxWidth: 900 }}>
-      <div className="page-head"><div><h1>{t('nav.profile')}</h1><p>{user.login} · {user.roleName}</p></div></div>
+      <div className="page-head"><div><h1>{t('nav.profile')}</h1><p>{fmtPhone(user.login)} · {user.roleName}</p></div></div>
       <div className="grid2" style={{ gap: 18, alignItems: 'start' }}>
         <div className="card card-pad col" style={{ gap: 12 }}>
           <h3 style={{ margin: 0 }}>{t('profile.data')}</h3>

@@ -189,7 +189,7 @@ export interface SceneState {
   mode: LabMode;
 }
 
-export type LabMode = 'view' | 'merge' | 'glue' | 'group';
+export type LabMode = 'view' | 'merge' | 'glue';
 
 /* ---------- Materiallar ---------- */
 export interface Material {

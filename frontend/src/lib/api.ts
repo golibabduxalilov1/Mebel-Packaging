@@ -79,7 +79,7 @@ export const api = {
 
   users: () => request<User[]>('GET', '/api/users'),
   createUser: (u: { login: string; fullName: string; password: string; roleId: number; lang: string; active: boolean }) => request<User>('POST', '/api/users', u),
-  updateUser: (id: number, u: Partial<{ fullName: string; password: string; roleId: number; lang: string; active: boolean }>) => request<User>('PUT', `/api/users/${id}`, u),
+  updateUser: (id: number, u: Partial<{ login: string; fullName: string; password: string; roleId: number; lang: string; active: boolean }>) => request<User>('PUT', `/api/users/${id}`, u),
   deleteUser: (id: number) => request<void>('DELETE', `/api/users/${id}`),
 
   roles: () => request<Role[]>('GET', '/api/roles'),

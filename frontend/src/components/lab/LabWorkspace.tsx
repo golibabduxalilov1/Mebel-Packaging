@@ -11,7 +11,6 @@ import { Drawing2D } from './Drawing2D';
 import { DataPanel } from './DataPanel';
 import { MergePanel } from './MergePanel';
 import { GluePanel } from './GluePanel';
-import { GroupPanel } from './GroupPanel';
 import { LeaveGuard } from './LeaveGuard';
 import { ContextMenu, ModeBar, StatusBar, GlueWizard } from './Chrome';
 
@@ -41,7 +40,6 @@ function useShortcuts(store: LabStore) {
         case '1': store.setMode('view'); break;
         case '2': store.setMode('merge'); break;
         case '3': store.setMode('glue'); break;
-        case '4': store.setMode('group'); break;
         case 'v': store.setTool('select'); break;
         case 'b': store.setTool('box'); break;
         case 'm': store.setTool(s.tool === 'measure' ? 'select' : 'measure'); break;
@@ -128,7 +126,6 @@ export function LabWorkspace({ store, title, subtitle, right, left, standalone, 
 
   let rightBody: ReactNode;
   if (mode === 'glue') rightBody = <GluePanel store={store} />;
-  else if (mode === 'group') rightBody = <GroupPanel store={store} />;
   else if (tab === 'drawing') rightBody = <Drawing2D store={store} />;
   else if (tab === 'data') rightBody = <DataPanel store={store} fileName={result?.name || 'model'} />;
   else if (mode === 'merge') rightBody = <><MergePanel store={store} /></>;
@@ -153,7 +150,7 @@ export function LabWorkspace({ store, title, subtitle, right, left, standalone, 
         <Viewport store={store} />
         <aside className="side right" aria-label={t('lab.panel')}>
           {showR ? <>
-            {mode !== 'glue' && mode !== 'group' ? (
+            {mode !== 'glue' ? (
               <div className="side-tabs" role="tablist">
                 {tabs.map((x) => <button key={x.id} role="tab" aria-selected={tab === x.id} className={tab === x.id ? 'on' : ''} onClick={() => store.setTab(x.id)}>{x.label}</button>)}
               </div>

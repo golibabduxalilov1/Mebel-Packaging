@@ -22,6 +22,7 @@ services:
     environment:
       DATABASE_URL: postgres://bazis:bazis@db:5432/bazis_upokovka?sslmode=disable
       JWT_SECRET: ${JWT_SECRET:-almashtiring-uzun-tasodifiy-satr}
+      ADMIN_PHONE: ${ADMIN_PHONE:-+998901234567}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-admin123}
     volumes:
       - files:/data

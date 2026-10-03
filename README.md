@@ -62,7 +62,8 @@ cd frontend && npm run dev                 # :3000, /api so'rovlari :8080 ga pro
 | `STORAGE_DIR` | `./data/files` | yuklangan manba fayllar |
 | `STATIC_DIR` | `../frontend/out` | frontend statik fayllari |
 | `FONTS_DIR` | `./assets/fonts` | PDF uchun DejaVu shriftlari |
-| `ADMIN_PASSWORD` | `admin123` | birinchi admin paroli |
+| `ADMIN_PHONE` | `+998901234567` | superadmin logini (telefon) |
+| `ADMIN_PASSWORD` | `admin123` | superadmin paroli (har ishga tushishda .env bilan sinxronlanadi) |
 | `MAX_UPLOAD_MB` | `210` | yuklash chegarasi |
 
 ## Rollar va ruxsatlar

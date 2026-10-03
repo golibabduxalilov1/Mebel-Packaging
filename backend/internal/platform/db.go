@@ -105,20 +105,8 @@ func seed(db *gorm.DB, cfg Config) error {
 		}
 	}
 	ensureOperatorRole(db)
-	db.Model(&User{}).Count(&n)
-	if n == 0 {
-		var admin Role
-		if err := db.Where(`"system" = ?`, true).First(&admin).Error; err != nil {
-			return err
-		}
-		h, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
-		if err != nil {
-			return err
-		}
-		if err := db.Create(&User{Login: "admin", FullName: "Administrator", PasswordHash: string(h), RoleID: admin.ID, Lang: "uz", Active: true}).Error; err != nil {
-			return err
-		}
-		log.Printf("admin foydalanuvchisi yaratildi (login: admin). Parolni darhol o'zgartiring.")
+	if err := ensureSuperadmin(db, cfg); err != nil {
+		return err
 	}
 	db.Model(&Material{}).Count(&n)
 	if n == 0 {
@@ -248,4 +236,39 @@ func ensureOperatorRole(db *gorm.DB) {
 		}
 		db.Create(&role)
 	}
+}
+
+// ensureSuperadmin .env dagi ADMIN_PHONE / ADMIN_PASSWORD bilan superadminni yaratadi yoki yangilaydi.
+// Eski "admin" foydalanuvchisi bo'lsa, uning logini telefon raqamga o'zgartiriladi.
+func ensureSuperadmin(db *gorm.DB, cfg Config) error {
+	phone, ok := NormalizePhone(cfg.AdminPhone)
+	if !ok {
+		return fmt.Errorf("ADMIN_PHONE noto'g'ri: +998 XX XXX XX XX ko'rinishida bo'lishi kerak")
+	}
+	var admin Role
+	if err := db.Where(`"system" = ?`, true).First(&admin).Error; err != nil {
+		return err
+	}
+	var u User
+	err := db.Where("login = ?", phone).First(&u).Error
+	if err != nil {
+		if e := db.Where("login = ? AND role_id = ?", "admin", admin.ID).First(&u).Error; e == nil {
+			u.Login = phone
+		} else {
+			u = User{Login: phone, FullName: "Superadmin", RoleID: admin.ID, Lang: "uz", Active: true}
+		}
+	}
+	if u.ID == 0 || bcrypt.CompareHashAndPassword([]byte(u.PasswordHash), []byte(cfg.AdminPassword)) != nil {
+		h, err := bcrypt.GenerateFromPassword([]byte(cfg.AdminPassword), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		u.PasswordHash = string(h)
+	}
+	u.RoleID, u.Active = admin.ID, true
+	if err := db.Save(&u).Error; err != nil {
+		return err
+	}
+	log.Printf("superadmin tayyor (login: +%s)", phone)
+	return nil
 }

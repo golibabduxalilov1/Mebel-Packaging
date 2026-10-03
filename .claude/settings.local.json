@@ -45,7 +45,27 @@
       "Bash(pdftoppm -r 60 -png -f 1 -l 1 labels.pdf lab)",
       "Bash(cd /home/mrmoon/Downloads/bazis-upokovka && grep -rl \"entityCavities\\\\|OperatorLeft\" --include=* . ~/.config/Code/User/History ~/.config/Code/User/workspaceStorage 2>/dev/null | grep -v \"^./frontend/src\" | head; ls -a frontend | head -30)",
       "Read(//home/mrmoon/.config/Code/User/History/**)",
-      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/frontend && grep -n \"cavit\\\\|Cavit\" -ri tests ../backend --include=* -l | head; echo ---; grep -n \"'op\\\\.[a-zA-Z.]*'\" -o -r src | sort -u | head -50; echo ---; grep -n \"^  *'op\\\\.\\\\|op\\\\.[a-z]*:\" src/lib/i18n/ru.ts | head -50; echo ---; grep -n \"mark\\\\|Mark\\\\|instruction\\\\|print\" src/lib/api.ts | head -20; echo; grep -n \"operator\\\\|\\\\.op-\\\\|op-\" src/app/globals.css | head -50)"
+      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/frontend && grep -n \"cavit\\\\|Cavit\" -ri tests ../backend --include=* -l | head; echo ---; grep -n \"'op\\\\.[a-zA-Z.]*'\" -o -r src | sort -u | head -50; echo ---; grep -n \"^  *'op\\\\.\\\\|op\\\\.[a-z]*:\" src/lib/i18n/ru.ts | head -50; echo ---; grep -n \"mark\\\\|Mark\\\\|instruction\\\\|print\" src/lib/api.ts | head -20; echo; grep -n \"operator\\\\|\\\\.op-\\\\|op-\" src/app/globals.css | head -50)",
+      "Bash(git mv *)",
+      "Bash(npm test *)",
+      "Bash(git stash *)",
+      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/backend && sed -n 60,200p internal/eksport/instruction.go; cat internal/eksport/instruction_test.go; sed -n 60,140p internal/upokovka/algorithm_test.go; grep -n \"^func Test\" internal/upokovka/algorithm_test.go; grep -n \"pack\\\\|Pack\" ../frontend/src/lib/types.ts | head -40)",
+      "Read(//home/mrmoon/Downloads/frontend/src/lib/**)",
+      "Bash(sed -i \"s|^import { useI18n } from '@/lib/i18n';|&\\\\nimport { fmtPhone, isPhone } from '@/lib/phone';|\" src/app/admin/users/page.tsx)",
+      "Bash(sed -i \"s|^import { useI18n } from '@/lib/i18n';|&\\\\nimport { fmtPhone } from '@/lib/phone';|\" src/app/profile/page.tsx)",
+      "Bash(sed -i \"s|api.updateUser\\(f.id, { fullName|api.updateUser\\(f.id, { login: f.login, fullName|\" src/app/admin/users/page.tsx)",
+      "Bash(sed -i '82s/Partial<{ fullName/Partial<{ login: string; fullName/' src/lib/api.ts)",
+      "Bash(gofmt -l internal)",
+      "Bash(curl -s -i localhost:8080/api/auth/me)",
+      "Bash(curl -s -i localhost:3000/api/auth/me)",
+      "Bash(PGPASSWORD=bazis psql -h localhost -U bazis bazis_upokovka -c \"select id,login,active from users\")",
+      "Bash(ps -o pid,lstart,cmd -p 23600)",
+      "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/backend && sed -n 1,47p internal/auth/*.go | head -80; grep -n \"failMu\\\\|fails\\\\b\" internal/auth/*.go | head)",
+      "Bash(ss -ltn | grep 8080; tail -3 /tmp/claude-1000/server.log 2>&1)",
+      "Read(//tmp/claude-1000/**)"
+    ],
+    "additionalDirectories": [
+      "/home/mrmoon/Downloads/bazis-upokovka/frontend/internal/auth"
     ]
   }
 }

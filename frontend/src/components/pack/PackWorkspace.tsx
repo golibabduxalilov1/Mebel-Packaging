@@ -9,6 +9,7 @@ import { useI18n } from '@/lib/i18n';
 import { Icon } from '../ui/Icon';
 import { Modal, useToast } from '../ui/Modal';
 import { fmtN } from '../lab/PartsTable';
+import { GroupsModal } from './GroupsModal';
 import { OperatorLeft, OperatorRight, poseText, doneCount } from './OperatorView';
 
 function Num({ label, value, onChange, disabled, suffix, min = 0 }: { label: string; value: number; onChange(v: number): void; disabled?: boolean; suffix?: string; min?: number }) {
@@ -115,6 +116,7 @@ export function PackWorkspace({ order }: { order: Order }) {
   const [explode, setExplode] = useState(0);
   const [dirtySettings, setDirtySettings] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
+  const [groupsOpen, setGroupsOpen] = useState(false);
   const [groups, setGroups] = useState<PackGroup[]>([]);
   const canRun = can('P5'), canSettings = can('P6'), canEdit = can('P7'), canExport = can('P8'), canMark = can('P11') || can('P7');
   const pureOperator = !canRun && !canSettings && !canEdit;
@@ -126,7 +128,8 @@ export function PackWorkspace({ order }: { order: Order }) {
     setOperator(v);
   }, [pureOperator]);
   const toggleOperator = (v: boolean) => { setOperator(v); try { localStorage.setItem('pack.operator', v ? '1' : '0'); } catch { /* ignore */ } };
-  useEffect(() => { api.lab(order.id).then((l) => setGroups(l.doc?.packGroups || [])).catch(() => undefined); }, [order.id]);
+  const loadGroups = useCallback(() => { api.lab(order.id).then((l) => setGroups(l.doc?.packGroups || [])).catch(() => undefined); }, [order.id]);
+  useEffect(() => { loadGroups(); }, [loadGroups]);
 
   const load = useCallback(async () => {
     const r = await api.pack(order.id);
@@ -219,6 +222,7 @@ export function PackWorkspace({ order }: { order: Order }) {
         </div>
         <div className="row" style={{ marginLeft: 'auto', gap: 8 }}>
           {!pureOperator ? <button className={'btn sm' + (operator ? ' on' : '')} aria-pressed={operator} onClick={() => toggleOperator(!operator)} title={t('op.toggleHint')}><Icon name="hand" size={15} />{t('op.view')}</button> : null}
+          {operator || !can('P2') ? null : <button className="btn sm" onClick={() => setGroupsOpen(true)}><Icon name="box" size={15} />{t('mode.group')}</button>}
           {operator ? null : <button className="btn sm" disabled={!result || !canExport} onClick={() => setExportOpen(true)} title={!canExport ? t('perm.need', { p: 'P8' }) : ''}><Icon name="print" size={15} />{t('pack.export')}</button>}
           {operator ? null : <button className="btn sm accent" disabled={!canRun || busy || !settings} onClick={run} title={!canRun ? t('perm.need', { p: 'P5' }) : ''}>
             <Icon name="play" size={15} />{busy ? t('pack.running') : result ? t('pack.rerun') : t('pack.run')}
@@ -329,6 +333,7 @@ export function PackWorkspace({ order }: { order: Order }) {
           </aside>}
         </div>
       </div>
+      {groupsOpen ? <GroupsModal orderId={order.id} onClose={() => setGroupsOpen(false)} onSaved={() => { loadGroups(); load().catch((e) => push(e instanceof Error ? e.message : String(e), 'error')); }} /> : null}
       {exportOpen && result ? <ExportModal order={order} result={result} onClose={() => setExportOpen(false)} /> : null}
     </div>
   );

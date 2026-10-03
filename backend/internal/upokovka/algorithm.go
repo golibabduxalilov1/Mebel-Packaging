@@ -23,6 +23,17 @@ import (
 
 const eps = 0.01 // mm va kg
 
+// Cavity: detal ichidagi bo'sh hajm (detal o'qlarida, L >= W >= T), mm. Closed: olti yoqdan qaysilari yopiq.
+type Cavity struct {
+	X      float64 `json:"x"`
+	Y      float64 `json:"y"`
+	Z      float64 `json:"z"`
+	L      float64 `json:"l"`
+	W      float64 `json:"w"`
+	H      float64 `json:"h"`
+	Closed []bool  `json:"closed"`
+}
+
 // ItemIn: laboratoriyadan keladigan element (frontend PackItemIn).
 type ItemIn struct {
 	RefKind    string   `json:"refKind"`
@@ -36,6 +47,19 @@ type ItemIn struct {
 	T          *float64 `json:"T"`
 	UnitWeight *float64 `json:"unitWeight"`
 	Qty        int      `json:"qty"`
+	Group      string   `json:"group"` // alohida upokovka guruhi (bo'sh = umumiy)
+	GroupName  string   `json:"groupName"`
+	ArtPos     string   `json:"artPos"`
+	Geom       string   `json:"geom"` // mesh | contour | box | none
+	Cavities   []Cavity `json:"cavities"`
+}
+
+// GroupSettings: guruhning karton sozlamalari; nil maydon umumiy sozlamadan olinadi.
+// CapL/CapW/CapH: avto rejimda o'lcham chegarasi, qo'lda rejimda karton o'lchami.
+type GroupSettings struct {
+	MaxWeight        *float64
+	CapL, CapW, CapH *float64
+	Padding          *float64
 }
 
 type Settings struct {
@@ -47,35 +71,91 @@ type Settings struct {
 	Wall            float64
 	IncludeHardware bool
 	BoxLimits       map[int]float64 // quti raqami -> limit
+	Groups          map[string]GroupSettings
+}
+
+// forGroup: guruh uchun amaldagi sozlama (umumiy sozlama ustiga guruh qiymatlari qo'yiladi).
+func (s Settings) forGroup(id string) Settings {
+	g, ok := s.Groups[id]
+	if id == "" || !ok {
+		return s
+	}
+	over := func(dst *float64, v *float64) {
+		if v != nil {
+			*dst = *v
+		}
+	}
+	over(&s.MaxWeight, g.MaxWeight)
+	over(&s.CapL, g.CapL)
+	over(&s.CapW, g.CapW)
+	over(&s.CapH, g.CapH)
+	over(&s.Padding, g.Padding)
+	return s
 }
 
 // Unit: bitta jismoniy birlik (qty marta takrorlanadi). L >= W - asos, H - qalinlik.
 type Unit struct {
-	UID      string
-	RefKind  string
-	RefUID   string
-	Name     string
-	Material string
-	Color    string
-	L, W, H  float64
-	Weight   float64
+	UID       string
+	RefKind   string
+	RefUID    string
+	Name      string
+	Material  string
+	Color     string
+	L, W, H   float64
+	Weight    float64
+	Group     string
+	GroupName string
+	ArtPos    string
+	Geom      string
+	Cav       []Cavity
+}
+
+// orient: detal o'qlari (0=L, 1=W, 2=T) karton o'qlari (x, y, z) ga qanday tushishi.
+type orient struct {
+	ax   [3]int
+	pose string // flat | upright
+	up   string // tik o'q: T | W | L
+}
+
+var orients = []orient{
+	{[3]int{0, 1, 2}, "flat", "T"},
+	{[3]int{1, 0, 2}, "flat", "T"}, // tekislikda 90 daraja burilgan
+	{[3]int{0, 2, 1}, "upright", "W"},
+	{[3]int{2, 0, 1}, "upright", "W"},
+	{[3]int{1, 2, 0}, "upright", "L"},
+	{[3]int{2, 1, 0}, "upright", "L"},
+}
+
+// mapCav: o'yiqni detal o'qlaridan karton o'qlariga o'tkazadi (detal burchagiga nisbatan siljish va o'lcham).
+func (o orient) mapCav(c Cavity, _ Unit) (x, y, z, l, w, h float64) {
+	pos := [3]float64{c.X, c.Y, c.Z}
+	size := [3]float64{c.L, c.W, c.H}
+	return pos[o.ax[0]], pos[o.ax[1]], pos[o.ax[2]], size[o.ax[0]], size[o.ax[1]], size[o.ax[2]]
 }
 
 type Placed struct {
 	Unit
-	X, Y, Z float64 // ichki burchakdan (padding hisobga olingan)
-	PL, PW  float64 // joylashgandagi asos o'lchami (burilgan bo'lishi mumkin)
-	Rotated bool
-	Layer   int
+	X, Y, Z    float64 // ichki burchakdan (padding hisobga olingan)
+	PL, PW, PH float64 // joylashgandagi o'lchamlar karton o'qlari bo'yicha
+	Orient     int     // orients indeksi
+	Pose, Up   string
+	Rotated    bool
+	Layer      int
+	Step       int    // yig'ish tartibi (1 dan)
+	Host       string // ichiga joylangan bo'lsa tashqi detal UID
+	Done       bool   // operator "Joylandi" belgisi
 }
 
 type BoxOut struct {
 	No                     int
+	Group                  string
+	GroupName              string
 	L, W, H                float64 // tashqi
 	InnerL, InnerW, InnerH float64
 	Weight                 float64
 	MaxWeight              float64
 	Fill                   float64
+	Ready                  bool
 	Items                  []Placed
 }
 
@@ -85,6 +165,7 @@ type Warning struct {
 	RefUID string `json:"refUid"`
 	Size   string `json:"size,omitempty"`
 	Reason string `json:"reason"`
+	Group  string `json:"group,omitempty"`
 }
 
 type Unplaced struct {
@@ -113,6 +194,7 @@ func fmtSize(l, w, t float64) string {
 }
 
 // Expand: elementlarni birliklarga ajratadi; chiqarib tashlanganlar uchun ogohlantirish.
+// Chegaralar (og'irlik, o'lcham) elementning guruhi sozlamasidan olinadi.
 func Expand(items []ItemIn, s Settings) ([]Unit, []Warning) {
 	var units []Unit
 	var warns []Warning
@@ -120,8 +202,12 @@ func Expand(items []ItemIn, s Settings) ([]Unit, []Warning) {
 		if it.Qty <= 0 || it.Kind == "ignore" {
 			continue
 		}
+		gs := s.forGroup(it.Group)
+		warn := func(code, size, reason string) {
+			warns = append(warns, Warning{Code: code, Name: it.Name, RefUID: it.RefUID, Size: size, Reason: reason, Group: it.Group})
+		}
 		hw := it.Kind == "hardware"
-		if hw && !s.IncludeHardware {
+		if hw && !gs.IncludeHardware {
 			continue
 		}
 		qty := " × " + strconv.Itoa(it.Qty)
@@ -130,29 +216,32 @@ func Expand(items []ItemIn, s Settings) ([]Unit, []Warning) {
 			if hw {
 				code = "hardware_no_size"
 			}
-			warns = append(warns, Warning{Code: code, Name: it.Name, RefUID: it.RefUID, Reason: qty})
+			warn(code, "", qty)
 			continue
 		}
 		l, w, t := sorted3(*it.L, *it.W, *it.T)
 		size := fmtSize(l, w, t)
 		if it.UnitWeight == nil || *it.UnitWeight < 0 {
-			warns = append(warns, Warning{Code: "unknown_weight", Name: it.Name, RefUID: it.RefUID, Size: size, Reason: qty})
+			warn("unknown_weight", size, qty)
 			continue
 		}
 		wt := *it.UnitWeight
-		if wt > s.MaxWeight+eps {
-			warns = append(warns, Warning{Code: "overweight_item", Name: it.Name, RefUID: it.RefUID, Size: size, Reason: fmt.Sprintf("%.2f kg > %.2f kg%s", wt, s.MaxWeight, qty)})
+		if wt > gs.MaxWeight+eps {
+			warn("overweight_item", size, fmt.Sprintf("%.2f kg > %.2f kg%s", wt, gs.MaxWeight, qty))
 			continue
 		}
-		cl, cw, ch := s.CapL-2*s.Padding, s.CapW-2*s.Padding, s.CapH-2*s.Padding
+		cl, cw, ch := gs.CapL-2*gs.Padding, gs.CapW-2*gs.Padding, gs.CapH-2*gs.Padding
 		fitsFlat := t <= ch+eps && ((l <= cl+eps && w <= cw+eps) || (l <= cw+eps && w <= cl+eps))
 		if !fitsFlat {
-			warns = append(warns, Warning{Code: "unfit", Name: it.Name, RefUID: it.RefUID, Size: size,
-				Reason: fmt.Sprintf("%s%s", fmtSize(cl, cw, ch), qty)})
+			warn("unfit", size, fmt.Sprintf("%s%s", fmtSize(cl, cw, ch), qty))
 			continue
 		}
+		if it.Geom == "none" { // geometriya yo'q: chegara qutisi bilan hisoblandi
+			warn("bbox_only", size, qty)
+		}
 		for i := 1; i <= it.Qty; i++ {
-			units = append(units, Unit{UID: it.RefUID + "#" + strconv.Itoa(i), RefKind: it.RefKind, RefUID: it.RefUID, Name: it.Name, Material: it.Material, Color: it.Color, L: l, W: w, H: t, Weight: wt})
+			units = append(units, Unit{UID: it.RefUID + "#" + strconv.Itoa(i), RefKind: it.RefKind, RefUID: it.RefUID, Name: it.Name, Material: it.Material, Color: it.Color,
+				L: l, W: w, H: t, Weight: wt, Group: it.Group, GroupName: it.GroupName, ArtPos: it.ArtPos, Geom: it.Geom, Cav: it.Cavities})
 		}
 	}
 	return units, warns
@@ -204,20 +293,31 @@ func (b *bin) volumeUsed() float64 {
 	return v
 }
 
-// bestRect: Best Short Side Fit; qaytaradi: rect indeksi, burilganmi, ball (kichik yaxshi).
-func bestRect(free []rect, l, w float64) (int, bool, float64) {
-	best, rot, score := -1, false, math.Inf(1)
-	for i, f := range free {
-		for _, o := range [][2]float64{{l, w}, {w, l}} {
-			if o[0] <= f.l+eps && o[1] <= f.w+eps {
-				s := math.Min(f.l-o[0], f.w-o[1])
-				if s < score-1e-9 {
-					best, rot, score = i, o[0] != l, s
-				}
-			}
+// overlapArea: ikki Placed ning planli kesishma yuzasi.
+func overlapArea(a, b Placed) float64 {
+	ox := math.Min(a.X+a.PL, b.X+b.PL) - math.Max(a.X, b.X)
+	oy := math.Min(a.Y+a.PW, b.Y+b.PW) - math.Max(a.Y, b.Y)
+	if ox <= eps || oy <= eps {
+		return 0
+	}
+	return ox * oy
+}
+
+// supported: detal polda (floor) yoki kamida yarim yuzasi bilan pastdagi detallarga tayanadi.
+func supported(items []Placed, it Placed, floor float64) bool {
+	if it.Host != "" || it.Z <= floor+eps {
+		return true
+	}
+	area := 0.0
+	for _, o := range items {
+		if o.UID == it.UID || math.Abs(o.Z+o.PH-it.Z) > eps {
+			continue
+		}
+		if a := overlapArea(it, o); a > 0 {
+			area += a
 		}
 	}
-	return best, rot, score
+	return area >= 0.5*it.PL*it.PW-eps
 }
 
 func overlaps(a, b rect) bool {
@@ -278,24 +378,37 @@ func occupy(free []rect, p rect) []rect {
 }
 
 // place: birlikni qutiga qo'yishga urinadi. Avval mavjud qatlamlar (balandlik isrofi eng kami), keyin yangi qatlam.
+// Yuqori qatlamdagi detal tayanchga ega bo'lishi shart (supported).
 func (b *bin) place(u Unit) bool {
 	if b.weight+u.Weight > b.maxW+eps {
 		return false
 	}
-	bestL, bestR := -1, -1
-	bestRot := false
+	cand := func(z float64, x, y float64, o orient2) Placed {
+		pl, pw := u.L, u.W
+		if o.rot {
+			pl, pw = u.W, u.L
+		}
+		return Placed{Unit: u, X: x, Y: y, Z: z, PL: pl, PW: pw, PH: u.H}
+	}
+	bestL := -1
+	var best Placed
 	bestScore := math.Inf(1)
 	for li, l := range b.layers {
 		if u.H > l.h+eps {
 			continue
 		}
-		ri, rot, s := bestRect(l.free, u.L, u.W)
-		if ri < 0 {
-			continue
-		}
-		score := (l.h-u.H)*1e6 + s // avval vertikal isrof, keyin BSSF
-		if score < bestScore-1e-9 {
-			bestL, bestR, bestRot, bestScore = li, ri, rot, score
+		for _, f := range l.free {
+			for _, o := range flatOrients {
+				c := cand(l.z, f.x, f.y, o)
+				if c.PL > f.l+eps || c.PW > f.w+eps || !supported(b.items, c, 0) {
+					continue
+				}
+				score := (l.h-u.H)*1e6 + math.Min(f.l-c.PL, f.w-c.PW) // avval vertikal isrof, keyin BSSF
+				if score < bestScore-1e-9 {
+					bestL, best, bestScore = li, c, score
+					best.Rotated = o.rot
+				}
+			}
 		}
 	}
 	if bestL < 0 {
@@ -303,25 +416,47 @@ func (b *bin) place(u Unit) bool {
 		if z+u.H > b.capH+eps {
 			return false
 		}
-		nl := &layer{z: z, h: u.H, free: []rect{{0, 0, b.capL, b.capW}}}
-		ri, rot, _ := bestRect(nl.free, u.L, u.W)
-		if ri < 0 {
+		anchors := [][2]float64{{0, 0}}
+		for _, it := range b.items {
+			if math.Abs(it.Z+it.PH-z) <= eps {
+				anchors = append(anchors, [2]float64{it.X, it.Y})
+			}
+		}
+		for _, a := range anchors {
+			for _, o := range flatOrients {
+				c := cand(z, a[0], a[1], o)
+				if c.X+c.PL > b.capL+eps || c.Y+c.PW > b.capW+eps || !supported(b.items, c, 0) {
+					continue
+				}
+				c.Rotated = o.rot
+				b.layers = append(b.layers, &layer{z: z, h: u.H, free: []rect{{0, 0, b.capL, b.capW}}})
+				bestL, best = len(b.layers)-1, c
+				break
+			}
+			if bestL >= 0 {
+				break
+			}
+		}
+		if bestL < 0 {
 			return false
 		}
-		b.layers = append(b.layers, nl)
-		bestL, bestR, bestRot = len(b.layers)-1, ri, rot
 	}
 	l := b.layers[bestL]
-	f := l.free[bestR]
-	pl, pw := u.L, u.W
-	if bestRot {
-		pl, pw = u.W, u.L
+	l.free = occupy(l.free, rect{best.X, best.Y, best.PL, best.PW})
+	best.Layer = bestL
+	best.Orient, best.Pose, best.Up = 0, "flat", "T"
+	if best.Rotated {
+		best.Orient = 1
 	}
-	l.free = occupy(l.free, rect{f.x, f.y, pl, pw})
-	b.items = append(b.items, Placed{Unit: u, X: f.x, Y: f.y, Z: l.z, PL: pl, PW: pw, Rotated: bestRot, Layer: bestL})
+	b.items = append(b.items, best)
 	b.weight += u.Weight
 	return true
 }
+
+// orient2: tekislikdagi burilish (faqat yotqizilgan holat).
+type orient2 struct{ rot bool }
+
+var flatOrients = []orient2{{false}, {true}}
 
 func (b *bin) placeAll(us []Unit) bool {
 	for _, u := range us {
@@ -335,8 +470,9 @@ func (b *bin) placeAll(us []Unit) bool {
 /* ---------- asosiy hisob ---------- */
 
 type packer struct {
-	s    Settings
-	bins []*bin
+	s      Settings // guruh uchun amaldagi sozlama
+	offset int      // oldingi guruhlardagi qutilar soni (quti raqami uchun)
+	bins   []*bin
 }
 
 func (p *packer) caps() (float64, float64, float64) {
@@ -352,7 +488,7 @@ func (p *packer) limitFor(no int) float64 {
 
 func (p *packer) fresh() *bin {
 	cl, cw, ch := p.caps()
-	return newBin(cl, cw, ch, p.limitFor(len(p.bins)+1))
+	return newBin(cl, cw, ch, p.limitFor(p.offset+len(p.bins)+1))
 }
 
 func sortUnits(us []Unit) {
@@ -368,11 +504,35 @@ func sortUnits(us []Unit) {
 	})
 }
 
-// Pack: to'liq hisoblash.
+// Pack: to'liq hisoblash. Har bir guruh (umumiy, keyin alohida guruhlar) o'z kartonlariga joylanadi, guruhlar aralashmaydi.
 func Pack(items []ItemIn, s Settings) Result {
 	units, warns := Expand(items, s)
-	p := &packer{s: s}
-	// guruhlar: bir xil RefUID
+	order := []string{}
+	byGroup := map[string][]Unit{}
+	for _, u := range units {
+		if _, ok := byGroup[u.Group]; !ok {
+			order = append(order, u.Group)
+		}
+		byGroup[u.Group] = append(byGroup[u.Group], u)
+	}
+	sort.SliceStable(order, func(i, j int) bool { return order[i] == "" && order[j] != "" })
+	var boxes []BoxOut
+	var unplaced []Unplaced
+	for _, g := range order {
+		bs, up := packUnits(byGroup[g], s.forGroup(g), len(boxes))
+		boxes = append(boxes, bs...)
+		unplaced = append(unplaced, up...)
+	}
+	return Result{Boxes: boxes, Warnings: warns, Unplaced: mergeUnplaced(unplaced)}
+}
+
+// packUnits: bitta guruhning birliklarini joylaydi; qutilar raqami offset dan keyin boshlanadi.
+func packUnits(units []Unit, s Settings, offset int) ([]BoxOut, []Unplaced) {
+	if len(units) == 0 {
+		return nil, nil
+	}
+	p := &packer{s: s, offset: offset}
+	// bir xil RefUID dagi birliklar iloji boricha bitta qutiga
 	order := []string{}
 	groups := map[string][]Unit{}
 	for _, u := range units {
@@ -436,7 +596,7 @@ func Pack(items []ItemIn, s Settings) Result {
 		}
 	}
 	p.reduce()
-	return Result{Boxes: p.output(), Warnings: warns, Unplaced: mergeUnplaced(unplaced)}
+	return p.output(units[0].Group, units[0].GroupName), unplaced
 }
 
 // reduce: oxirgi qutini boshqalarga taqsimlashga urinish (qutilar sonini kamaytirish).
@@ -487,16 +647,17 @@ func mergeUnplaced(in []Unplaced) []Unplaced {
 	return out
 }
 
-func (p *packer) output() []BoxOut {
+func (p *packer) output(group, groupName string) []BoxOut {
 	out := make([]BoxOut, 0, len(p.bins))
 	for i, b := range p.bins {
-		out = append(out, finishBox(i+1, b, p.s))
+		out = append(out, finishBox(p.offset+i+1, b, p.s, group, groupName))
 	}
 	return out
 }
 
-// finishBox: avto rejimda qutini tarkibga moslab kichraytiradi, koordinatalarga padding qo'shadi.
-func finishBox(no int, b *bin, s Settings) BoxOut {
+// finishBox: avto rejimda qutini tarkibga moslab kichraytiradi, koordinatalarga padding qo'shadi,
+// detallarni yig'ish tartibida (qatlam, keyin x, y) raqamlaydi.
+func finishBox(no int, b *bin, s Settings, group, groupName string) BoxOut {
 	var mx, my, mz float64
 	// qatlam indekslari z bo'yicha tartiblangan bo'lishi uchun qayta raqamlash
 	zs := make([]float64, len(b.layers))
@@ -515,12 +676,25 @@ func finishBox(no int, b *bin, s Settings) BoxOut {
 	for i, it := range b.items {
 		mx = math.Max(mx, it.X+it.PL)
 		my = math.Max(my, it.Y+it.PW)
-		mz = math.Max(mz, it.Z+it.H)
+		mz = math.Max(mz, it.Z+it.PH)
 		it.X += s.Padding
 		it.Y += s.Padding
 		it.Z += s.Padding
 		it.Layer = rank[it.Layer]
 		items[i] = it
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		a, c := items[i], items[j]
+		if a.Layer != c.Layer {
+			return a.Layer < c.Layer
+		}
+		if math.Abs(a.X-c.X) > eps {
+			return a.X < c.X
+		}
+		return a.Y < c.Y
+	})
+	for i := range items {
+		items[i].Step = i + 1
 	}
 	var il, iw, ih float64
 	if s.Manual {
@@ -533,7 +707,7 @@ func finishBox(no int, b *bin, s Settings) BoxOut {
 	if vol > 0 {
 		fill = b.volumeUsed() / vol
 	}
-	return BoxOut{No: no, InnerL: il, InnerW: iw, InnerH: ih, L: il + 2*s.Wall, W: iw + 2*s.Wall, H: ih + 2*s.Wall,
+	return BoxOut{No: no, Group: group, GroupName: groupName, InnerL: il, InnerW: iw, InnerH: ih, L: il + 2*s.Wall, W: iw + 2*s.Wall, H: ih + 2*s.Wall,
 		Weight: round(b.weight, 3), MaxWeight: b.maxW, Fill: round(fill, 4), Items: items}
 }
 
@@ -542,12 +716,64 @@ func round(v float64, d int) float64 {
 	return math.Round(v*k) / k
 }
 
+// SizeKey: bir xil o'lchamli kartonlarni jamlash kaliti (tashqi o'lcham, mm).
+func SizeKey(b BoxOut) string {
+	return fmt.Sprintf("%.0f×%.0f×%.0f", b.L, b.W, b.H)
+}
+
+// Check: karton cheklovlari buzilishi (kalitlar frontend/eksport tarjimalarida: issue.*).
+func Check(b BoxOut, st Settings) []string {
+	gs := st.forGroup(b.Group)
+	var out []string
+	sum := 0.0
+	for _, it := range b.Items {
+		sum += it.Weight
+	}
+	if sum > b.MaxWeight+eps {
+		out = append(out, "over_weight")
+	}
+	if b.InnerL > gs.CapL+eps || b.InnerW > gs.CapW+eps || b.InnerH > gs.CapH+eps {
+		out = append(out, "over_size")
+	}
+	outside, overlap, unsupp := false, false, false
+	for i, a := range b.Items {
+		if a.X < -eps || a.Y < -eps || a.Z < -eps || a.X+a.PL > b.InnerL+eps || a.Y+a.PW > b.InnerW+eps || a.Z+a.PH > b.InnerH+eps {
+			outside = true
+		}
+		for _, c := range b.Items[i+1:] {
+			if a.Host == c.UID || c.Host == a.UID {
+				continue // ichiga joylangan detal o'yiqda turadi
+			}
+			oz := math.Min(a.Z+a.PH, c.Z+c.PH) - math.Max(a.Z, c.Z)
+			if oz > eps && overlapArea(a, c) > 0 {
+				overlap = true
+			}
+		}
+		if !supported(b.Items, a, gs.Padding) {
+			unsupp = true
+		}
+	}
+	if outside {
+		out = append(out, "outside")
+	}
+	if overlap {
+		out = append(out, "overlap")
+	}
+	if unsupp {
+		out = append(out, "unsupported")
+	}
+	return out
+}
+
 /* ---------- natijani qo'lda tahrirlash (F27) ---------- */
 
 var (
-	ErrNotFound  = fmt.Errorf("element topilmadi")
-	ErrOverLimit = fmt.Errorf("og'irlik limiti oshadi")
-	ErrNoFit     = fmt.Errorf("qutida joy yetmaydi")
+	ErrNotFound       = fmt.Errorf("element topilmadi")
+	ErrOverLimit      = fmt.Errorf("og'irlik limiti oshadi")
+	ErrNoFit          = fmt.Errorf("qutida joy yetmaydi")
+	ErrGroupMix       = fmt.Errorf("boshqa upokovka guruhi kartoniga ko'chirib bo'lmaydi")
+	ErrCompositeSplit = fmt.Errorf("yelimlangan kompozitni bo'lib bo'lmaydi")
+	ErrNotAllDone     = fmt.Errorf("barcha detallar joylanmagan")
 )
 
 // repack: qutini berilgan birliklar bilan qaytadan teradi (o'lcham cheklovi sozlamadan).
@@ -569,6 +795,7 @@ func unitsOf(b BoxOut) []Unit {
 }
 
 // Move: elementni boshqa qutiga o'tkazadi. Manba va nishon qutilar qayta teriladi; bo'sh qolgan quti o'chiriladi.
+// Boshqa upokovka guruhi kartoniga ko'chirish rad etiladi.
 func Move(boxes []BoxOut, uid string, toNo int, s Settings) ([]BoxOut, error) {
 	from, idx := -1, -1
 	to := -1
@@ -590,10 +817,13 @@ func Move(boxes []BoxOut, uid string, toNo int, s Settings) ([]BoxOut, error) {
 	}
 	item := boxes[from].Items[idx].Unit
 	tb := boxes[to]
+	if item.Group != tb.Group {
+		return nil, ErrGroupMix
+	}
 	if tb.Weight+item.Weight > tb.MaxWeight+eps {
 		return nil, ErrOverLimit
 	}
-	nb, ok := repack(append(unitsOf(tb), item), tb.MaxWeight, s)
+	nb, ok := repack(append(unitsOf(tb), item), tb.MaxWeight, s.forGroup(tb.Group))
 	if !ok {
 		return nil, ErrNoFit
 	}
@@ -607,17 +837,21 @@ func Move(boxes []BoxOut, uid string, toNo int, s Settings) ([]BoxOut, error) {
 	for i, b := range boxes {
 		switch i {
 		case to:
-			out = append(out, finishBox(b.No, nb, s))
+			nbo := finishBox(b.No, nb, s.forGroup(b.Group), b.Group, b.GroupName)
+			nbo.Ready = b.Ready
+			out = append(out, nbo)
 		case from:
 			if len(rest) == 0 {
 				continue
 			}
-			sb, ok := repack(rest, b.MaxWeight, s)
+			sb, ok := repack(rest, b.MaxWeight, s.forGroup(b.Group))
 			if !ok { // olib tashlangandan keyin sig'masligi mumkin emas, lekin xavfsizlik uchun eski holat
 				out = append(out, b)
 				continue
 			}
-			out = append(out, finishBox(b.No, sb, s))
+			sbo := finishBox(b.No, sb, s.forGroup(b.Group), b.Group, b.GroupName)
+			sbo.Ready = b.Ready
+			out = append(out, sbo)
 		default:
 			out = append(out, b)
 		}
@@ -628,13 +862,13 @@ func Move(boxes []BoxOut, uid string, toNo int, s Settings) ([]BoxOut, error) {
 	return out, nil
 }
 
-// SetLimit: bitta quti limitini o'zgartiradi (nil = umumiy limit).
+// SetLimit: bitta quti limitini o'zgartiradi (nil = guruh/umumiy limit).
 func SetLimit(boxes []BoxOut, no int, limit *float64, s Settings) ([]BoxOut, error) {
 	for i := range boxes {
 		if boxes[i].No != no {
 			continue
 		}
-		v := s.MaxWeight
+		v := s.forGroup(boxes[i].Group).MaxWeight
 		if limit != nil {
 			v = *limit
 		}
@@ -645,6 +879,41 @@ func SetLimit(boxes []BoxOut, no int, limit *float64, s Settings) ([]BoxOut, err
 			return nil, ErrOverLimit
 		}
 		boxes[i].MaxWeight = v
+		return boxes, nil
+	}
+	return nil, ErrNotFound
+}
+
+// SetDone: operator "Joylandi" belgisi. Belgi olib tashlansa, karton "Tayyor" holatidan chiqadi.
+func SetDone(boxes []BoxOut, uid string, done bool) ([]BoxOut, error) {
+	for i := range boxes {
+		for j := range boxes[i].Items {
+			if boxes[i].Items[j].UID == uid {
+				boxes[i].Items[j].Done = done
+				if !done {
+					boxes[i].Ready = false
+				}
+				return boxes, nil
+			}
+		}
+	}
+	return nil, ErrNotFound
+}
+
+// SetReady: karton "Tayyor" belgisi; belgilash uchun barcha detallar "Joylandi" bo'lishi kerak.
+func SetReady(boxes []BoxOut, no int, ready bool) ([]BoxOut, error) {
+	for i := range boxes {
+		if boxes[i].No != no {
+			continue
+		}
+		if ready {
+			for _, it := range boxes[i].Items {
+				if !it.Done {
+					return nil, ErrNotAllDone
+				}
+			}
+		}
+		boxes[i].Ready = ready
 		return boxes, nil
 	}
 	return nil, ErrNotFound
