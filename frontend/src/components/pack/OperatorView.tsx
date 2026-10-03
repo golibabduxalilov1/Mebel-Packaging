@@ -9,9 +9,9 @@ type T = (k: string, p?: Record<string, string | number>) => string;
 
 export const doneCount = (b: PackBox) => b.items.filter((i) => i.done).length;
 
-/** Detalni qanday qo'yish: yotqizib / tik / boshqa detal ichiga. */
+/** Detalni qanday qo'yish: yotqizilgan / yon taraflama / boshqa detal ichiga. */
 export function poseText(t: T, it: PackItemPlaced): string {
-  const base = it.pose === 'upright' ? t('pose.upright', { h: Math.round(it.h) }) : t('pose.flat');
+  const base = it.pose === 'side' ? t('pose.side', { h: Math.round(it.h) }) : t('pose.flat');
   return it.host ? `${base} · ${t('pose.inside')}` : base;
 }
 

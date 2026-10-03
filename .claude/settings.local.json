@@ -62,7 +62,9 @@
       "Bash(ps -o pid,lstart,cmd -p 23600)",
       "Bash(cd /home/mrmoon/Downloads/bazis-upokovka/backend && sed -n 1,47p internal/auth/*.go | head -80; grep -n \"failMu\\\\|fails\\\\b\" internal/auth/*.go | head)",
       "Bash(ss -ltn | grep 8080; tail -3 /tmp/claude-1000/server.log 2>&1)",
-      "Read(//tmp/claude-1000/**)"
+      "Read(//tmp/claude-1000/**)",
+      "Read(//home/mrmoon/Downloads/backend/internal/upokovka/**)",
+      "Bash(gofmt -w algorithm_test.go algorithm.go)"
     ],
     "additionalDirectories": [
       "/home/mrmoon/Downloads/bazis-upokovka/frontend/internal/auth"

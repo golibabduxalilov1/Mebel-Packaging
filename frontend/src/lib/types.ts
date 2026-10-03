@@ -224,6 +224,8 @@ export interface PackSettings {
   boxH: number;
   padding: number;
   wall: number;
+  /** Kvadratga yaqinlik chegarasi b/c (>= 1); 0 yoki bo'sh = yon taraflama joylash o'chiq. */
+  squareRatio: number;
   includeHardware: boolean;
   boxLimits: Record<string, number>;
   groups: Record<string, GroupSetting>;
@@ -251,7 +253,7 @@ export interface PackItemPlaced {
   unitW: number;
   unitT: number;
   rotated: boolean;
-  pose: 'flat' | 'upright';
+  pose: 'flat' | 'side';
   up: 'T' | 'W' | 'L';
   layer: number;
   step: number;

@@ -6,7 +6,9 @@
 //   - bo'sh joylar keyingi (kichikroq) detallar bilan to'ldiriladi;
 //   - kompozit gabarit qutisi bilan bitta birlik;
 //   - detallar faqat yotqizib qo'yiladi (eng kichik o'lcham balandlik), qatlam-qatlam teriladi,
-//     tekislikda 90 daraja burish mumkin;
+//     tekislikda 90 daraja burish mumkin; "tik" holat yo'q. Kvadratga yaqin kesimli detal
+//     (b/c <= SquareRatio) yon taraflama yotishi mumkin (balandlik b, eng uzun o'lcham gorizontal);
+//   - og'irroq detal yengilroq detal ustida turmaydi; ichi o'yiq detal bo'shlig'iga kichik detal joylanadi;
 //   - og'irligi yoki o'lchami noma'lum detallar chiqarib tashlanadi va ogohlantirish beriladi;
 //   - furnitura standart holatda qadoqlanmaydi.
 //
@@ -69,6 +71,7 @@ type Settings struct {
 	CapH            float64
 	Padding         float64
 	Wall            float64
+	SquareRatio     float64 // b/c chegarasi; 0 = yon taraflama joylash o'chiq
 	IncludeHardware bool
 	BoxLimits       map[int]float64 // quti raqami -> limit
 	Groups          map[string]GroupSettings
@@ -111,19 +114,32 @@ type Unit struct {
 }
 
 // orient: detal o'qlari (0=L, 1=W, 2=T) karton o'qlari (x, y, z) ga qanday tushishi.
+// Tik holat mavjud emas: eng katta o'lcham (L) hech qachon vertikal (z) bo'lmaydi.
 type orient struct {
 	ax   [3]int
-	pose string // flat | upright
-	up   string // tik o'q: T | W | L
+	pose string // flat | side
+	up   string // vertikal o'q: T | W
 }
 
 var orients = []orient{
 	{[3]int{0, 1, 2}, "flat", "T"},
 	{[3]int{1, 0, 2}, "flat", "T"}, // tekislikda 90 daraja burilgan
-	{[3]int{0, 2, 1}, "upright", "W"},
-	{[3]int{2, 0, 1}, "upright", "W"},
-	{[3]int{1, 2, 0}, "upright", "L"},
-	{[3]int{2, 1, 0}, "upright", "L"},
+	{[3]int{0, 2, 1}, "side", "W"}, // yon taraflama: vertikal o'lcham b, L gorizontal
+	{[3]int{2, 0, 1}, "side", "W"},
+}
+
+// allowedOrients: birlik uchun ruxsat etilgan yo'nalishlar (orients indekslari). Yon taraflama faqat
+// SquareRatio > 0 va b/c <= SquareRatio bo'lganda.
+func allowedOrients(u Unit, ratio float64) []int {
+	if ratio > 0 && u.H > eps && u.W-u.H > eps && u.L-u.W > eps && u.W/u.H <= ratio+1e-9 {
+		return []int{0, 1, 2, 3}
+	}
+	return []int{0, 1}
+}
+
+func (o orient) dims(u Unit) (l, w, h float64) {
+	d := [3]float64{u.L, u.W, u.H}
+	return d[o.ax[0]], d[o.ax[1]], d[o.ax[2]]
 }
 
 // mapCav: o'yiqni detal o'qlaridan karton o'qlariga o'tkazadi (detal burchagiga nisbatan siljish va o'lcham).
@@ -140,6 +156,7 @@ type Placed struct {
 	Orient     int     // orients indeksi
 	Pose, Up   string
 	Rotated    bool
+	CavIdx     int // Host != "" bo'lsa: tashqi detalning qaysi o'yig'iga joylangan
 	Layer      int
 	Step       int    // yig'ish tartibi (1 dan)
 	Host       string // ichiga joylangan bo'lsa tashqi detal UID
@@ -232,6 +249,9 @@ func Expand(items []ItemIn, s Settings) ([]Unit, []Warning) {
 		}
 		cl, cw, ch := gs.CapL-2*gs.Padding, gs.CapW-2*gs.Padding, gs.CapH-2*gs.Padding
 		fitsFlat := t <= ch+eps && ((l <= cl+eps && w <= cw+eps) || (l <= cw+eps && w <= cl+eps))
+		if !fitsFlat && gs.SquareRatio > 0 && t > eps && w/t <= gs.SquareRatio+1e-9 {
+			fitsFlat = w <= ch+eps && ((l <= cl+eps && t <= cw+eps) || (l <= cw+eps && t <= cl+eps)) // yon taraflama
+		}
 		if !fitsFlat {
 			warn("unfit", size, fmt.Sprintf("%s%s", fmtSize(cl, cw, ch), qty))
 			continue
@@ -259,17 +279,19 @@ type layer struct {
 type bin struct {
 	capL, capW, capH float64 // foydali (padding chiqarilgan) o'lcham
 	maxW             float64
+	pad              float64 // o'yiqdagi detal bilan devor orasidagi masofa (padding)
+	ratio            float64 // kvadratga yaqinlik chegarasi (0 = yon taraflama o'chiq)
 	layers           []*layer
 	items            []Placed
 	weight           float64
 }
 
-func newBin(capL, capW, capH, maxW float64) *bin {
-	return &bin{capL: capL, capW: capW, capH: capH, maxW: maxW}
+func newBin(capL, capW, capH, maxW float64, s Settings) *bin {
+	return &bin{capL: capL, capW: capW, capH: capH, maxW: maxW, pad: s.Padding, ratio: s.SquareRatio}
 }
 
 func (b *bin) clone() *bin {
-	n := &bin{capL: b.capL, capW: b.capW, capH: b.capH, maxW: b.maxW, weight: b.weight}
+	n := &bin{capL: b.capL, capW: b.capW, capH: b.capH, maxW: b.maxW, pad: b.pad, ratio: b.ratio, weight: b.weight}
 	n.items = append([]Placed(nil), b.items...)
 	for _, l := range b.layers {
 		n.layers = append(n.layers, &layer{z: l.z, h: l.h, free: append([]rect(nil), l.free...)})
@@ -288,7 +310,9 @@ func (b *bin) top() float64 {
 func (b *bin) volumeUsed() float64 {
 	v := 0.0
 	for _, p := range b.items {
-		v += p.L * p.W * p.H
+		if p.Host == "" { // ichiga joylanganlar tashqi detal gabaritida
+			v += p.L * p.W * p.H
+		}
 	}
 	return v
 }
@@ -318,6 +342,22 @@ func supported(items []Placed, it Placed, floor float64) bool {
 		}
 	}
 	return area >= 0.5*it.PL*it.PW-eps
+}
+
+// stackOK: og'irroq detal yengilroq detalning ustida turmaydi (to'g'ridan-to'g'ri pastdagilar tekshiriladi).
+func stackOK(items []Placed, it Placed) bool {
+	if it.Host != "" {
+		return true
+	}
+	for _, o := range items {
+		if o.UID == it.UID || o.Host != "" || math.Abs(o.Z+o.PH-it.Z) > eps {
+			continue
+		}
+		if overlapArea(it, o) > 0 && it.Weight > o.Weight+eps {
+			return false
+		}
+	}
+	return true
 }
 
 func overlaps(a, b rect) bool {
@@ -377,86 +417,135 @@ func occupy(free []rect, p rect) []rect {
 	return res
 }
 
-// place: birlikni qutiga qo'yishga urinadi. Avval mavjud qatlamlar (balandlik isrofi eng kami), keyin yangi qatlam.
-// Yuqori qatlamdagi detal tayanchga ega bo'lishi shart (supported).
+// cavityRegion: tashqi detal h ning ci-o'yig'i quti o'qlarida (padding chiqarilgan foydali hudud) va uning bo'sh to'rtburchaklari.
+// Faqat yuqoridan ochiq o'yiqqa detal tushirish mumkin.
+func (b *bin) cavityRegion(h Placed, ci int) (ox, oy, oz float64, free []rect, hgt float64, ok bool) {
+	cv := h.Cav[ci]
+	o := orients[h.Orient]
+	if len(cv.Closed) == 6 && cv.Closed[2*o.ax[2]+1] {
+		return 0, 0, 0, nil, 0, false
+	}
+	cx, cy, cz, cl, cw, ch := o.mapCav(cv, h.Unit)
+	cl, cw, ch = cl-2*b.pad, cw-2*b.pad, ch-2*b.pad
+	if cl <= eps || cw <= eps || ch <= eps {
+		return 0, 0, 0, nil, 0, false
+	}
+	ox, oy, oz = h.X+cx+b.pad, h.Y+cy+b.pad, h.Z+cz+b.pad
+	free = []rect{{0, 0, cl, cw}}
+	for _, g := range b.items {
+		if g.Host == h.UID && g.CavIdx == ci {
+			free = occupy(free, rect{g.X - ox, g.Y - oy, g.PL, g.PW})
+		}
+	}
+	return ox, oy, oz, free, ch, true
+}
+
+// placeInCavity: birlikni boshqa detalning o'yig'iga joylashga urinadi (eng zich mos keladigan o'yiq tanlanadi).
+func (b *bin) placeInCavity(u Unit) (Placed, bool) {
+	var best Placed
+	bestScore := math.Inf(1)
+	for _, h := range b.items {
+		if h.Host != "" || len(h.Cav) == 0 {
+			continue
+		}
+		for ci := range h.Cav {
+			ox, oy, oz, free, hgt, ok := b.cavityRegion(h, ci)
+			if !ok {
+				continue
+			}
+			for _, oi := range allowedOrients(u, b.ratio) {
+				pl, pw, ph := orients[oi].dims(u)
+				if ph > hgt+eps {
+					continue
+				}
+				for _, f := range free {
+					if pl > f.l+eps || pw > f.w+eps {
+						continue
+					}
+					if score := f.l*f.w - pl*pw; score < bestScore-1e-9 {
+						bestScore = score
+						o := orients[oi]
+						best = Placed{Unit: u, X: ox + f.x, Y: oy + f.y, Z: oz, PL: pl, PW: pw, PH: ph, Orient: oi, Pose: o.pose, Up: o.up,
+							Rotated: oi == 1 || oi == 3, Host: h.UID, CavIdx: ci}
+					}
+				}
+			}
+		}
+	}
+	return best, bestScore < math.Inf(1)
+}
+
+// place: birlikni qutiga qo'yishga urinadi. Avval boshqa detal o'yig'i, keyin mavjud qatlamlar (balandlik isrofi eng kami),
+// keyin yangi qatlam. Yuqori qatlamdagi detal tayanchga ega bo'lishi va yengilroq detal ustida turmasligi shart.
 func (b *bin) place(u Unit) bool {
 	if b.weight+u.Weight > b.maxW+eps {
 		return false
 	}
-	cand := func(z float64, x, y float64, o orient2) Placed {
-		pl, pw := u.L, u.W
-		if o.rot {
-			pl, pw = u.W, u.L
-		}
-		return Placed{Unit: u, X: x, Y: y, Z: z, PL: pl, PW: pw, PH: u.H}
+	if c, ok := b.placeInCavity(u); ok {
+		b.items = append(b.items, c)
+		b.weight += u.Weight
+		return true
 	}
+	orIdx := allowedOrients(u, b.ratio)
+	cand := func(z, x, y float64, oi int) Placed {
+		o := orients[oi]
+		pl, pw, ph := o.dims(u)
+		return Placed{Unit: u, X: x, Y: y, Z: z, PL: pl, PW: pw, PH: ph, Orient: oi, Pose: o.pose, Up: o.up, Rotated: oi == 1 || oi == 3}
+	}
+	ok := func(c Placed) bool { return supported(b.items, c, 0) && stackOK(b.items, c) }
 	bestL := -1
 	var best Placed
 	bestScore := math.Inf(1)
 	for li, l := range b.layers {
-		if u.H > l.h+eps {
-			continue
-		}
 		for _, f := range l.free {
-			for _, o := range flatOrients {
-				c := cand(l.z, f.x, f.y, o)
-				if c.PL > f.l+eps || c.PW > f.w+eps || !supported(b.items, c, 0) {
+			for _, oi := range orIdx {
+				c := cand(l.z, f.x, f.y, oi)
+				if c.PH > l.h+eps || c.PL > f.l+eps || c.PW > f.w+eps || !ok(c) {
 					continue
 				}
-				score := (l.h-u.H)*1e6 + math.Min(f.l-c.PL, f.w-c.PW) // avval vertikal isrof, keyin BSSF
+				score := (l.h-c.PH)*1e6 + math.Min(f.l-c.PL, f.w-c.PW) // avval vertikal isrof, keyin BSSF
 				if score < bestScore-1e-9 {
 					bestL, best, bestScore = li, c, score
-					best.Rotated = o.rot
 				}
 			}
 		}
 	}
 	if bestL < 0 {
 		z := b.top()
-		if z+u.H > b.capH+eps {
-			return false
-		}
 		anchors := [][2]float64{{0, 0}}
 		for _, it := range b.items {
-			if math.Abs(it.Z+it.PH-z) <= eps {
+			if it.Host == "" && math.Abs(it.Z+it.PH-z) <= eps {
 				anchors = append(anchors, [2]float64{it.X, it.Y})
 			}
 		}
+		found := false
 		for _, a := range anchors {
-			for _, o := range flatOrients {
-				c := cand(z, a[0], a[1], o)
-				if c.X+c.PL > b.capL+eps || c.Y+c.PW > b.capW+eps || !supported(b.items, c, 0) {
+			for _, oi := range orIdx {
+				c := cand(z, a[0], a[1], oi)
+				if z+c.PH > b.capH+eps || c.X+c.PL > b.capL+eps || c.Y+c.PW > b.capW+eps || !ok(c) {
 					continue
 				}
-				c.Rotated = o.rot
-				b.layers = append(b.layers, &layer{z: z, h: u.H, free: []rect{{0, 0, b.capL, b.capW}}})
-				bestL, best = len(b.layers)-1, c
-				break
+				if !found || c.PH < best.PH-eps { // iloji boricha past qatlam
+					best, found = c, true
+				}
 			}
-			if bestL >= 0 {
+			if found {
 				break
 			}
 		}
-		if bestL < 0 {
+		if !found {
 			return false
 		}
+		b.layers = append(b.layers, &layer{z: z, h: best.PH, free: []rect{{0, 0, b.capL, b.capW}}})
+		bestL = len(b.layers) - 1
 	}
 	l := b.layers[bestL]
 	l.free = occupy(l.free, rect{best.X, best.Y, best.PL, best.PW})
 	best.Layer = bestL
-	best.Orient, best.Pose, best.Up = 0, "flat", "T"
-	if best.Rotated {
-		best.Orient = 1
-	}
 	b.items = append(b.items, best)
 	b.weight += u.Weight
 	return true
 }
-
-// orient2: tekislikdagi burilish (faqat yotqizilgan holat).
-type orient2 struct{ rot bool }
-
-var flatOrients = []orient2{{false}, {true}}
 
 func (b *bin) placeAll(us []Unit) bool {
 	for _, u := range us {
@@ -488,17 +577,27 @@ func (p *packer) limitFor(no int) float64 {
 
 func (p *packer) fresh() *bin {
 	cl, cw, ch := p.caps()
-	return newBin(cl, cw, ch, p.limitFor(p.offset+len(p.bins)+1))
+	return newBin(cl, cw, ch, p.limitFor(p.offset+len(p.bins)+1), p.s)
+}
+
+// heavier: og'irroq, keyin qalinroq, keyin kattaroq yuzali birlik oldin (karton pastiga) joylanadi.
+func heavier(a, b Unit) (less bool, decided bool) {
+	if math.Abs(a.Weight-b.Weight) > eps {
+		return a.Weight > b.Weight, true
+	}
+	if math.Abs(a.H-b.H) > eps {
+		return a.H > b.H, true
+	}
+	if math.Abs(a.L*a.W-b.L*b.W) > eps {
+		return a.L*a.W > b.L*b.W, true
+	}
+	return false, false
 }
 
 func sortUnits(us []Unit) {
 	sort.SliceStable(us, func(i, j int) bool {
-		ai, aj := us[i].L*us[i].W, us[j].L*us[j].W
-		if math.Abs(ai-aj) > eps {
-			return ai > aj
-		}
-		if math.Abs(us[i].H-us[j].H) > eps {
-			return us[i].H > us[j].H
+		if l, ok := heavier(us[i], us[j]); ok {
+			return l
 		}
 		return us[i].UID < us[j].UID
 	})
@@ -542,12 +641,8 @@ func packUnits(units []Unit, s Settings, offset int) ([]BoxOut, []Unplaced) {
 		groups[u.RefUID] = append(groups[u.RefUID], u)
 	}
 	sort.SliceStable(order, func(i, j int) bool {
-		a, b := groups[order[i]][0], groups[order[j]][0]
-		if math.Abs(a.L*a.W-b.L*b.W) > eps {
-			return a.L*a.W > b.L*b.W
-		}
-		if math.Abs(a.H-b.H) > eps {
-			return a.H > b.H
+		if l, ok := heavier(groups[order[i]][0], groups[order[j]][0]); ok {
+			return l
 		}
 		return order[i] < order[j]
 	})
@@ -700,7 +795,9 @@ func finishBox(no int, b *bin, s Settings, group, groupName string) BoxOut {
 	if s.Manual {
 		il, iw, ih = s.CapL, s.CapW, s.CapH
 	} else {
-		il, iw, ih = mx+2*s.Padding, my+2*s.Padding, mz+2*s.Padding
+		il = ceilTo(mx+2*s.Padding, s.CapL)
+		iw = ceilTo(my+2*s.Padding, s.CapW)
+		ih = ceilTo(mz+2*s.Padding, s.CapH)
 	}
 	vol := il * iw * ih
 	fill := 0.0
@@ -709,6 +806,15 @@ func finishBox(no int, b *bin, s Settings, group, groupName string) BoxOut {
 	}
 	return BoxOut{No: no, Group: group, GroupName: groupName, InnerL: il, InnerW: iw, InnerH: ih, L: il + 2*s.Wall, W: iw + 2*s.Wall, H: ih + 2*s.Wall,
 		Weight: round(b.weight, 3), MaxWeight: b.maxW, Fill: round(fill, 4), Items: items}
+}
+
+// ceilTo: o'lchamni 1 mm ga yuqoriga yaxlitlaydi; yaxlitlash chegaradan oshirib yuborsa, yaxlitlanmagan qiymat qoladi.
+func ceilTo(v, limit float64) float64 {
+	c := math.Ceil(v - 1e-6)
+	if c > limit+eps {
+		return v
+	}
+	return c
 }
 
 func round(v float64, d int) float64 {
@@ -735,8 +841,14 @@ func Check(b BoxOut, st Settings) []string {
 	if b.InnerL > gs.CapL+eps || b.InnerW > gs.CapW+eps || b.InnerH > gs.CapH+eps {
 		out = append(out, "over_size")
 	}
-	outside, overlap, unsupp := false, false, false
+	outside, overlap, unsupp, upright, heavyAbove := false, false, false, false, false
 	for i, a := range b.Items {
+		if !validPose(a, gs.SquareRatio) {
+			upright = true
+		}
+		if !stackOK(b.Items, a) {
+			heavyAbove = true
+		}
 		if a.X < -eps || a.Y < -eps || a.Z < -eps || a.X+a.PL > b.InnerL+eps || a.Y+a.PW > b.InnerW+eps || a.Z+a.PH > b.InnerH+eps {
 			outside = true
 		}
@@ -762,7 +874,23 @@ func Check(b BoxOut, st Settings) []string {
 	if unsupp {
 		out = append(out, "unsupported")
 	}
+	if upright {
+		out = append(out, "orientation")
+	}
+	if heavyAbove {
+		out = append(out, "heavy_above")
+	}
 	return out
+}
+
+// validPose: vertikal o'lcham detalning eng kichik o'lchami (yotqizilgan) yoki, kvadratga yaqin bo'lsa va
+// chegara berilgan bo'lsa, o'rta o'lcham b (yon taraflama). Eng uzun o'lcham vertikal bo'lishi mumkin emas.
+func validPose(a Placed, ratio float64) bool {
+	u := a.Unit
+	if math.Abs(a.PH-u.H) <= eps {
+		return true
+	}
+	return ratio > 0 && math.Abs(a.PH-u.W) <= eps && u.W/u.H <= ratio+1e-9 && u.L-u.W > eps
 }
 
 /* ---------- natijani qo'lda tahrirlash (F27) ---------- */
@@ -779,7 +907,7 @@ var (
 // repack: qutini berilgan birliklar bilan qaytadan teradi (o'lcham cheklovi sozlamadan).
 func repack(us []Unit, maxW float64, s Settings) (*bin, bool) {
 	cl, cw, ch := s.CapL-2*s.Padding, s.CapW-2*s.Padding, s.CapH-2*s.Padding
-	b := newBin(cl, cw, ch, maxW)
+	b := newBin(cl, cw, ch, maxW, s)
 	cp := append([]Unit(nil), us...)
 	// guruhlar birga qolishi uchun avval RefUID, keyin o'lcham bo'yicha
 	sortUnits(cp)

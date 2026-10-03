@@ -50,6 +50,8 @@ export function SettingsForm({ s, set, disabled, groups = [] }: { s: PackSetting
         <Num label={t('pack.padding')} suffix="mm" value={s.padding} onChange={(v) => set({ padding: v })} disabled={disabled} />
         <Num label={t('pack.wall')} suffix="mm" value={s.wall} onChange={(v) => set({ wall: v })} disabled={disabled} />
       </div>
+      <Num label={t('pack.squareRatio')} value={s.squareRatio || NaN} onChange={(v) => set({ squareRatio: v || 0 })} disabled={disabled} />
+      <div className="small muted">{t('pack.squareHint')}</div>
       <label className="check"><input type="checkbox" checked={s.includeHardware} disabled={disabled} onChange={(e) => set({ includeHardware: e.target.checked })} />{t('pack.includeHw')}</label>
       {groups.length ? <GroupSettings s={s} set={set} disabled={disabled} groups={groups} /> : null}
     </div>

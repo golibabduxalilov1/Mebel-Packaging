@@ -19,7 +19,7 @@ type Handlers struct{ *platform.App }
 
 // ToSettings: platform sozlamasidan algoritm sozlamasiga.
 func ToSettings(p platform.PackSettings) Settings {
-	s := Settings{MaxWeight: p.MaxWeight, Manual: p.SizeMode == "manual", Padding: p.Padding, Wall: p.Wall, IncludeHardware: p.IncludeHardware, BoxLimits: map[int]float64{}}
+	s := Settings{MaxWeight: p.MaxWeight, Manual: p.SizeMode == "manual", Padding: p.Padding, Wall: p.Wall, SquareRatio: p.SquareRatio, IncludeHardware: p.IncludeHardware, BoxLimits: map[int]float64{}}
 	if s.Manual {
 		s.CapL, s.CapW, s.CapH = p.BoxL, p.BoxW, p.BoxH
 	} else {

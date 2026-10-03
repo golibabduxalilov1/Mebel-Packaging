@@ -28,9 +28,9 @@ var dict = map[string]map[string]string{
 		"box": "QUTI", "of": "dan", "stale": "Diqqat: laboratoriyada o'zgarish bor, natija eskirgan.", "more": "yana",
 		"unfit": "Qutiga sig'maydi", "unknown_weight": "Og'irligi noma'lum", "unknown_size": "O'lchami noma'lum", "hardware_no_size": "Furnitura o'lchamsiz", "overweight_item": "Limitdan og'ir",
 		"bbox_only": "Geometriyasi yo'q: chegara qutisi ishlatildi", "group": "Guruh", "common": "Umumiy", "len": "Uzunlik", "wid": "Eni", "hei": "Balandlik",
-		"summary": "Kartonlar jamlanmasi", "count": "Soni", "nos": "Karton raqamlari", "step": "Qadam", "pose": "Holati", "flat": "yotqizilgan", "upright": "tik",
+		"summary": "Kartonlar jamlanmasi", "count": "Soni", "nos": "Karton raqamlari", "step": "Qadam", "pose": "Holati", "flat": "yotqizilgan", "sideways": "yon taraflama",
 		"inside": "ichida", "instruction": "Karton ko'rsatmasi", "steps": "Joylash tartibi (pastdan yuqoriga)", "top": "Yuqoridan ko'rinish", "side": "Yon tomondan ko'rinish",
-		"layerN": "Qatlam", "artpos": "ArtPos", "ready": "Tayyor", "done": "Joylandi", "issues": "Cheklovlar", "over_weight": "Og'irlik limiti oshgan", "over_size": "Karton maksimal o'lchamdan katta",
+		"layerN": "Qatlam", "artpos": "ArtPos", "ready": "Tayyor", "done": "Joylandi", "issues": "Cheklovlar", "over_weight": "Og'irlik limiti oshgan", "over_size": "Karton maksimal o'lchamdan katta", "orientation": "Detal noto'g'ri yo'nalishda", "heavy_above": "Og'ir detal yengil detal ustida",
 		"outside": "Detal karton tashqarisida", "overlap": "Detallar kesishadi", "unsupported": "Detal tayanchsiz yoki og'ir detal yengil ustida", "pos": "Joyi (x, y, z)",
 	},
 	"ru": {
@@ -41,9 +41,9 @@ var dict = map[string]map[string]string{
 		"box": "КОРОБКА", "of": "из", "stale": "Внимание: в лаборатории есть изменения, результат устарел.", "more": "ещё",
 		"unfit": "Не помещается", "unknown_weight": "Вес неизвестен", "unknown_size": "Размер неизвестен", "hardware_no_size": "Фурнитура без размеров", "overweight_item": "Тяжелее лимита",
 		"bbox_only": "Нет геометрии: использован габаритный бокс", "group": "Группа", "common": "Общая", "len": "Длина", "wid": "Ширина", "hei": "Высота",
-		"summary": "Сводка коробок", "count": "Кол-во", "nos": "Номера коробок", "step": "Шаг", "pose": "Положение", "flat": "плашмя", "upright": "стоя",
+		"summary": "Сводка коробок", "count": "Кол-во", "nos": "Номера коробок", "step": "Шаг", "pose": "Положение", "flat": "плашмя", "sideways": "боком",
 		"inside": "внутри", "instruction": "Инструкция по коробке", "steps": "Порядок укладки (снизу вверх)", "top": "Вид сверху", "side": "Вид сбоку",
-		"layerN": "Слой", "artpos": "ArtPos", "ready": "Готово", "done": "Уложено", "issues": "Ограничения", "over_weight": "Превышен лимит веса", "over_size": "Коробка больше максимального размера",
+		"layerN": "Слой", "artpos": "ArtPos", "ready": "Готово", "done": "Уложено", "issues": "Ограничения", "over_weight": "Превышен лимит веса", "over_size": "Коробка больше максимального размера", "orientation": "Неверное положение детали", "heavy_above": "Тяжёлая деталь над лёгкой",
 		"outside": "Деталь вне коробки", "overlap": "Детали пересекаются", "unsupported": "Деталь без опоры или тяжёлая на лёгкой", "pos": "Позиция (x, y, z)",
 	},
 }
@@ -93,10 +93,11 @@ func dims(l, w, h float64) string { return fmt.Sprintf("%.0f × %.0f × %.0f", l
 // groupLabel: karton guruhi nomi (umumiy bo'lsa "Umumiy").
 // poseText: detal qanday qo'yilishi (yotqizilgan yoki tik) va ichiga joylanganmi.
 func (d *data) poseText(it upItem) string {
-	t := tr(d.lang, it.Pose)
-	if it.Pose == "upright" && it.Up != "" {
-		t += " (" + it.Up + ")"
+	key := it.Pose
+	if key == "side" {
+		key = "sideways"
 	}
+	t := tr(d.lang, key)
 	if it.Host != "" {
 		t += ", " + tr(d.lang, "inside")
 	}

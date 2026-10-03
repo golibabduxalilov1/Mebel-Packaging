@@ -27,6 +27,7 @@ type PackSettings struct {
 	BoxH            float64            `json:"boxH"`
 	Padding         float64            `json:"padding"`
 	Wall            float64            `json:"wall"`
+	SquareRatio     float64            `json:"squareRatio"` // b/c chegarasi (>= 1); 0 = yon taraflama joylash o'chiq
 	IncludeHardware bool               `json:"includeHardware"`
 	BoxLimits       map[string]float64 `json:"boxLimits"`
 	// Groups: alohida upokovka guruhlari uchun karton sozlamalari (guruh id bo'yicha); berilmagan maydon umumiy sozlamadan olinadi.
@@ -188,6 +189,9 @@ func ValidatePackSettings(s *PackSettings) error {
 	}
 	if s.Padding < 0 || s.Wall < 0 {
 		return fmt.Errorf("bo'shliq va karton qalinligi manfiy bo'lmasin")
+	}
+	if s.SquareRatio != 0 && s.SquareRatio < 1 {
+		return fmt.Errorf("kvadratga yaqinlik chegarasi (b/c) 1 dan kichik bo'lmasin yoki bo'sh qoldiring")
 	}
 	if s.SizeMode == "auto" && (s.MaxL <= 0 || s.MaxW <= 0 || s.MaxH <= 0) {
 		return fmt.Errorf("avto rejimda maksimal o'lchamlar musbat bo'lishi kerak")

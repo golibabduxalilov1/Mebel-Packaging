@@ -2,6 +2,7 @@ package upokovka
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -264,5 +265,145 @@ func TestGroupsSeparate(t *testing.T) {
 	}
 	if _, err := Move(r.Boxes, r.Boxes[1].Items[0].UID, 1, s); err != ErrGroupMix {
 		t.Fatalf("guruhlar aralashishi rad etilishi kerak, olindi %v", err)
+	}
+}
+
+// noUpright: hech bir detalda eng katta o'lcham vertikal emas; yon taraflama faqat chegara berilganda.
+func noUpright(t *testing.T, r Result, s Settings) {
+	t.Helper()
+	for _, b := range r.Boxes {
+		for _, a := range b.Items {
+			if a.Pose != "flat" && a.Pose != "side" {
+				t.Fatalf("%s: noma'lum yo'nalish %q", a.UID, a.Pose)
+			}
+			if a.PH > a.Unit.H+eps && s.SquareRatio <= 0 {
+				t.Fatalf("%s: chegarasiz yon taraflama joylandi", a.UID)
+			}
+			if a.PH >= a.Unit.L-eps && a.Unit.L-a.Unit.H > eps {
+				t.Fatalf("%s: eng katta o'lcham vertikal (PH=%.0f L=%.0f)", a.UID, a.PH, a.Unit.L)
+			}
+			if a.Pose == "flat" && a.PH > a.Unit.H+eps {
+				t.Fatalf("%s: yotqizilgan, lekin balandlik qalinlikdan katta", a.UID)
+			}
+		}
+		if iss := Check(b, s); len(iss) > 0 {
+			t.Fatalf("quti %d: %v", b.No, iss)
+		}
+	}
+}
+
+func TestAlwaysFlatAndSideOffByDefault(t *testing.T) {
+	s := baseSettings(60)
+	// kvadratga yaqin kesim 100x90 va uzun a=1500: chegara yo'q => yotqizilgan
+	r := Pack(append(shkaf(), item("quti", 1500, 100, 90, 5, 2)), s)
+	checkResult(t, r, s, 13)
+	noUpright(t, r, s)
+	s.SquareRatio = 1.2
+	r = Pack(append(shkaf(), item("quti", 1500, 100, 90, 5, 2)), s)
+	checkResult(t, r, s, 13)
+	noUpright(t, r, s)
+}
+
+func TestSideOnlyWhenSquareish(t *testing.T) {
+	s := baseSettings(60)
+	s.SquareRatio = 1.2
+	// b/c = 1.11 <= 1.2: yon taraflama mumkin; 100/20 = 5: faqat yotqizilgan
+	r := Pack([]ItemIn{item("kv", 1500, 100, 90, 5, 1), item("yupqa", 1500, 100, 20, 2, 1)}, s)
+	for _, b := range r.Boxes {
+		for _, a := range b.Items {
+			if a.RefUID == "yupqa" && a.Pose != "flat" {
+				t.Fatalf("yupqa detal yon taraflama joylandi")
+			}
+		}
+	}
+	noUpright(t, r, s)
+}
+
+func TestBoxIsTightAndRounded(t *testing.T) {
+	s := baseSettings(60)
+	s.Padding, s.Wall = 10, 5
+	r := Pack([]ItemIn{item("a", 800.4, 500.2, 16, 3, 1)}, s)
+	b := r.Boxes[0]
+	if b.InnerL != 821 || b.InnerW != 521 || b.InnerH != 36 {
+		t.Fatalf("ichki o'lcham %.1f×%.1f×%.1f, kutilgan 821×521×36", b.InnerL, b.InnerW, b.InnerH)
+	}
+	if b.L != b.InnerL+10 || b.W != b.InnerW+10 || b.H != b.InnerH+10 {
+		t.Fatalf("tashqi o'lcham ichki + 2*qalinlik emas: %.0f×%.0f×%.0f", b.L, b.W, b.H)
+	}
+}
+
+func TestHeavyBelowLight(t *testing.T) {
+	s := baseSettings(200)
+	r := Pack([]ItemIn{item("yengil", 800, 500, 4, 1, 3), item("og'ir", 800, 500, 40, 20, 2), item("orta", 800, 500, 16, 6, 2)}, s)
+	for _, b := range r.Boxes {
+		for _, a := range b.Items {
+			for _, c := range b.Items {
+				if c.Z > a.Z+eps && overlapArea(a, c) > 0 && c.Weight > a.Weight+eps && math.Abs(a.Z+a.PH-c.Z) <= eps {
+					t.Fatalf("%s (%.0f kg) %s (%.0f kg) ustida", c.UID, c.Weight, a.UID, a.Weight)
+				}
+			}
+		}
+		if iss := Check(b, s); len(iss) > 0 {
+			t.Fatalf("quti %d: %v", b.No, iss)
+		}
+	}
+}
+
+// ichi o'yiq quti ichiga kichik detal joylanadi va karton kichikroq bo'ladi.
+func TestNestInsideHollow(t *testing.T) {
+	s := baseSettings(200)
+	hollow := item("quti", 600, 400, 300, 10, 1)
+	hollow.Cavities = []Cavity{{X: 20, Y: 20, Z: 20, L: 560, W: 360, H: 280, Closed: []bool{true, true, true, true, true, false}}}
+	small := item("kichik", 300, 200, 18, 1, 2)
+	with := Pack([]ItemIn{hollow, small}, s)
+	hollow.Cavities = nil
+	without := Pack([]ItemIn{hollow, small}, s)
+	noUpright(t, with, s)
+	if len(with.Boxes) != 1 {
+		t.Fatalf("1 quti kutilgan, %d", len(with.Boxes))
+	}
+	hosted := 0
+	for _, a := range with.Boxes[0].Items {
+		if a.Host != "" {
+			hosted++
+			if a.Z < 20+s.Padding-eps {
+				t.Fatalf("o'yiq tubidan pastda: z=%.1f", a.Z)
+			}
+		}
+	}
+	if hosted != 2 {
+		t.Fatalf("ichiga joylangan %d, kutilgan 2", hosted)
+	}
+	vw := with.Boxes[0].InnerL * with.Boxes[0].InnerW * with.Boxes[0].InnerH
+	vo := without.Boxes[0].InnerL * without.Boxes[0].InnerW * without.Boxes[0].InnerH
+	if len(without.Boxes) == 1 && vw >= vo {
+		t.Fatalf("o'yiqqa joylash kartonni kichraytirmadi: %.0f >= %.0f", vw, vo)
+	}
+	// yopiq o'yiq (tepasi ham yopiq) ishlatilmaydi
+	hollow.Cavities = []Cavity{{X: 20, Y: 20, Z: 20, L: 560, W: 360, H: 280, Closed: []bool{true, true, true, true, true, true}}}
+	closed := Pack([]ItemIn{hollow, small}, s)
+	for _, a := range closed.Boxes[0].Items {
+		if a.Host != "" {
+			t.Fatalf("yopiq o'yiqqa joylandi")
+		}
+	}
+}
+
+// qo'lda berilgan karton kengaymaydi: sig'maydigan detal rad etiladi.
+func TestManualNeverGrows(t *testing.T) {
+	s := baseSettings(60)
+	s.Manual, s.CapL, s.CapW, s.CapH = true, 600, 400, 100
+	r := Pack([]ItemIn{item("katta", 1000, 500, 16, 3, 1), item("kichik", 300, 200, 16, 1, 1)}, s)
+	if len(r.Boxes) != 1 || r.Boxes[0].InnerL != 600 || r.Boxes[0].InnerW != 400 || r.Boxes[0].InnerH != 100 {
+		t.Fatalf("manual karton o'zgardi: %+v", r.Boxes)
+	}
+	found := false
+	for _, w := range r.Warnings {
+		if w.Code == "unfit" && w.RefUID == "katta" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("sig'maydigan detal uchun ogohlantirish yo'q")
 	}
 }
